@@ -83,7 +83,10 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
 
 6. **Test it**
    - **6.1 Invoke a tool** — in your AI assistant's chat:
-     > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
+
+     ```
+     Use the PayLookup tool with OrderId 88201 and CustomerId C-1
+     ```
    - **6.2 Verify in IRIS Management Portal**
      - Go to **Interoperability → View Messages** → filter by today → see the `Ens.MessageHeader` entry with the BS→BP→BO chain
      - Click **Visual Trace** on that message to see the full flow: `Demo.PayLookupService` → `Demo.AuditProcess` → `Demo.AuditOperation`
