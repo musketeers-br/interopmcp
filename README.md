@@ -82,12 +82,29 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    - Reload VS Code window (Ctrl+Shift+P → "Developer: Reload Window")
 
 6. **Test it**
-   - In your AI assistant's chat, run:
+   - **6.1 Invoke a tool** — in your AI assistant's chat:
      > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
+   - **6.2 Verify in IRIS Management Portal**
+     - Go to **Interoperability → View Messages** → filter by today → see the `Ens.MessageHeader` entry with the BS→BP→BO chain
+     - Click **Visual Trace** on that message to see the full flow: `Demo.PayLookupService` → `Demo.AuditProcess` → `Demo.AuditOperation`
+   - **6.3 Verify audit store** (terminal):
+     ```objectscript
+     zn "USER"
+     zwrite ^InteropMCP.Invocations
+     ```
+     Or via SQL:
+     ```sql
+     SELECT * FROM br_musketeers.InteropMCP.Invocations ORDER BY InvocationId DESC
+     ```
+   - **6.4 Verify demo audit payload**:
+     ```objectscript
+     zn "USER"
+     zwrite ^InteropMCP.Demo.AuditD
+     ```
 
 **MCP endpoint:** `http://localhost:8080/mcp/interopmcp`
 
-> **See [Quick start](#quick-start) for detailed setup, [Tutorial](#quick-tutorial-with-opencode) for verification steps.**
+> **See [Quick start](#quick-start) for detailed setup.**
 
 ## Features
 
@@ -139,31 +156,6 @@ docker compose up -d --build
 The build provisions everything: MCP endpoint (`/mcp/interopmcp`), demo production
 (`br.musketeers.InteropMCP.Demo.Production`) with the BS→BP→BO trace chain, tool catalog, and the
 `iris-mcp-server` bridge (supervised).
-
-## Quick tutorial with opencode
-
-1. **Invoke a tool** — in opencode chat:
-   > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
-
-2. **Verify in IRIS Management Portal**:
-   - Go to **Interoperability → View Messages** → filter by today → you'll see the `Ens.MessageHeader` entry with the BS→BP→BO chain
-   - Click **Visual Trace** on that message to see the full flow: `Demo.PayLookupService` → `Demo.AuditProcess` → `Demo.AuditOperation`
-
-3. **Verify audit store** (terminal):
-   ```objectscript
-   zn "USER"
-   zwrite ^InteropMCP.Invocations
-   ```
-   Or via SQL:
-   ```sql
-   SELECT * FROM br_musketeers.InteropMCP.Invocations ORDER BY InvocationId DESC
-   ```
-
-4. **Verify demo audit payload**:
-   ```objectscript
-   zn "USER"
-   zwrite ^InteropMCP.Demo.AuditD
-   ```
 
 ## Architecture at a glance
 
