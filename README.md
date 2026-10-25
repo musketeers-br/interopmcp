@@ -91,7 +91,17 @@ For opencode, add the server to `opencode.json` and restart the session:
 
 ## Quick tutorial with opencode
 
-1. **Configure opencode** (see above) and restart.
+1. **Configure opencode** — the file `opencode.json` in this repo already contains the
+   `InteropMCP` remote server entry, so just open opencode in the repo directory and
+   restart the session:
+
+   ```json
+   "InteropMCP": {
+     "type": "remote",
+     "url": "http://localhost:8080/mcp",
+     "enabled": true
+   }
+   ```
 
 2. **Invoke a tool** — in opencode chat:
    > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
