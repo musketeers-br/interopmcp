@@ -113,6 +113,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      Then run:
      ```objectscript
      zwrite ^InteropMCP.Demo.AuditD
+     halt
      ```
 
 **MCP endpoint:** `http://localhost:8080/mcp/interopmcp`
