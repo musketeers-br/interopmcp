@@ -88,6 +88,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      Use the PayLookup tool with OrderId 88201 and CustomerId C-1
      ```
    - **6.2 Verify in IRIS Management Portal**
+     - Access the portal at [http://localhost:52773/csp/sys/UtilHome.csp](http://localhost:52773/csp/sys/UtilHome.csp)
      - Go to **Interoperability → View Messages** → filter by today → see the `Ens.MessageHeader` entry with the BS→BP→BO chain
      - Click **Visual Trace** on that message to see the full flow: `Demo.PayLookupService` → `Demo.AuditProcess` → `Demo.AuditOperation`
    - **6.3 Verify audit store** (terminal):
