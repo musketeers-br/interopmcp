@@ -20,13 +20,23 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
 
 2. **Load the image into Docker**
 
+   You can download **any** AI Hub version from the EAP Portal. For convenience, use the same version as this repo (`2026.3.0AI.154.0`) — then skip step 3.
+
    ```bash
-   docker load -i /path/to/iris-community-2026.3.0AI.xxx-docker.tar.gz
+   docker load -i /path/to/iris-community-2026.3.0AI.154.0-docker.tar.gz
+   ```
+   > **Tip:** The filename matches the tag, e.g., `iris-community-2026.3.0AI.154.0-docker.tar.gz`
+
+3. **Update the Dockerfile (only if using a different version)**
+
+   The repo's `Dockerfile` defaults to `2026.3.0AI.154.0`:
+   ```dockerfile
+   ARG IMAGE=docker.iscinternal.com/docker-intersystems/intersystems/iris-community:2026.3.0AI.154.0
    ```
 
-3. **Update the Dockerfile**
-   - Edit `Dockerfile` and change the `FROM` line to match the loaded image tag
-   - Example tag: `2026.3.0AI.154.0`
+   > **If you downloaded `2026.3.0AI.154.0` above, skip this step** — nothing to edit.
+
+   Otherwise, edit `Dockerfile` and change the `ARG IMAGE=...` line to match your loaded image tag.
 
 4. **Start the container**
 
