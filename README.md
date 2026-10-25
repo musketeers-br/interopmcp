@@ -29,8 +29,25 @@ Built on the InterSystems AI HUB framework in ObjectScript (`%AI.ToolSet`, `%AI.
 
 ## Quick start
 
-Requirements: Docker with the [AI Hub](https://evaluation.intersystems.com/Eval/early-access/AIHub)
-container image (`iris-community:2026.3.0AI` or later) available locally.
+### 1. Download the AI Hub container image
+
+1. Go to the [InterSystems Early Access Program Portal](https://evaluation.intersystems.com/Eval/early-access/AIHub) and download the AI Hub container for your platform.
+   - File ends with `docker.tar.gz`
+   - Choose **arm64** for macOS (Apple Silicon), **amd64** for Linux/Windows
+
+2. Load the image into Docker:
+   ```bash
+   docker load -i /path/to/iris-community-2026.3.0AI.xxx-docker.tar.gz
+   ```
+   Verify with `docker images` — you should see something like:
+   ```
+   docker.iscinternal.com/docker-intersystems/intersystems/iris-community   2026.3.0AI.154.0   <image-id>
+   ```
+   > **Note:** The version includes a build number (e.g., `2026.3.0AI.154.0`), not just `2026.3.0AI`.
+
+3. Update the `Dockerfile` in this repo — change the `FROM` line to match the exact image name printed above.
+
+### 2. Build and start
 
 ```bash
 docker compose up -d --build
@@ -46,16 +63,6 @@ Connect any MCP client — or opencode — to:
 http://localhost:8080/mcp/interopmcp
 ```
 
-For opencode, add the server to `opencode.json` and restart the session:
-
-```json
-"InteropMCP": {
-  "type": "remote",
-  "url": "http://localhost:8080/mcp/interopmcp",
-  "enabled": true
-}
-```
-
 Exposed tools (from the bundled demo production):
 
 | Tool | Classification | Purpose |
@@ -69,6 +76,18 @@ Exposed tools (from the bundled demo production):
 Try it: invoke `PayLookup` with `{"OrderId": "88201", "CustomerId": "C-1"}`. Invoke
 `RiskCheck` and observe the call being held; approve it from the IRIS terminal with
 `Do ##class(br.musketeers.InteropMCP.Approvals).Approve(approvalId, "operator1")`.
+
+## IDE Integration
+
+For opencode, add the server to `opencode.json` and restart the session:
+
+```json
+"InteropMCP": {
+  "type": "remote",
+  "url": "http://localhost:8080/mcp/interopmcp",
+  "enabled": true
+}
+```
 
 ## Architecture at a glance
 
