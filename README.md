@@ -8,6 +8,33 @@ guardrails and full audit — without rewriting a single line of integration cod
 Built on the InterSystems AI HUB framework in ObjectScript (`%AI.ToolSet`, `%AI.Tool`,
 `%AI.MCP.Service`) and deployed as a containerized workload.
 
+## Get running fast
+
+The AI Hub image is **not on Docker Hub** — you must download it from the InterSystems EAP Portal first, then load it locally.
+
+```bash
+# 1. Download from https://evaluation.intersystems.com/Eval/early-access/AIHub
+#    Get the .docker.tar.gz for your platform (arm64 for macOS, amd64 for Linux/Windows)
+
+# 2. Load the image into Docker
+docker load -i /path/to/iris-community-2026.3.0AI.xxx-docker.tar.gz
+
+# 3. Update the Dockerfile FROM line to match the loaded image tag (e.g. 2026.3.0AI.154.0)
+
+# 4. Start everything
+docker compose up -d --build
+
+# 5. Open opencode in this repo (opencode.json already configured)
+opencode
+
+# 6. Test it — in opencode chat:
+# > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
+```
+
+**MCP endpoint:** `http://localhost:8080/mcp/interopmcp`
+
+> **See [Quick start](#quick-start) for detailed setup, [Tutorial](#quick-tutorial-with-opencode) for verification steps.**
+
 ## Features
 
 - **Automatic tool discovery** — scans a running production for Business Services enabled
@@ -28,6 +55,8 @@ Built on the InterSystems AI HUB framework in ObjectScript (`%AI.ToolSet`, `%AI.
   production lives only in the container build.
 
 ## Quick start
+
+Detailed setup steps:
 
 ### 1. Download the AI Hub container image
 
@@ -57,60 +86,16 @@ The build provisions everything: MCP endpoint (`/mcp/interopmcp`), demo producti
 (`br.musketeers.InteropMCP.Demo.Production`) with the BS→BP→BO trace chain, tool catalog, and the
 `iris-mcp-server` bridge (supervised).
 
-Connect any MCP client to:
-
-```
-http://localhost:8080/mcp/interopmcp
-```
-
-Exposed tools (from the bundled demo production `br.musketeers.InteropMCP.Demo.Production`):
-
-| Tool | Classification | Purpose |
-|------|----------------|---------|
-| `PayLookup` | readonly | Verify payment status for an order |
-| `CustomerUpdate` | write | Update a customer's delivery address |
-| `RiskCheck` | critical | Risk assessment — held for human approval |
-| `BatchRun` | readonly, async | Long-running batch report generation |
-| `GetInvocationStatus` | — | Poll an async/pending invocation |
-
-Try it: invoke `PayLookup` with `{"OrderId": "88201", "CustomerId": "C-1"}`. Invoke
-`RiskCheck` and observe the call being held; approve it from the IRIS terminal with
-`Do ##class(br.musketeers.InteropMCP.Approvals).Approve(approvalId, "operator1")`.
-
-## IDE Integration
-
-For opencode, add the server to `opencode.json` and restart the session:
-
-```json
-"InteropMCP": {
-  "type": "remote",
-  "url": "http://localhost:8080/mcp/interopmcp",
-  "enabled": true
-}
-```
-
 ## Quick tutorial with opencode
 
-1. **Configure opencode** — the file `opencode.json` in this repo already contains the
-   `InteropMCP` remote server entry, so just open opencode in the repo directory and
-   restart the session:
-
-   ```json
-   "InteropMCP": {
-     "type": "remote",
-     "url": "http://localhost:8080/mcp",
-     "enabled": true
-   }
-   ```
-
-2. **Invoke a tool** — in opencode chat:
+1. **Invoke a tool** — in opencode chat:
    > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
 
-3. **Verify in IRIS Management Portal**:
+2. **Verify in IRIS Management Portal**:
    - Go to **Interoperability → View Messages** → filter by today → you'll see the `Ens.MessageHeader` entry with the BS→BP→BO chain
    - Click **Visual Trace** on that message to see the full flow: `Demo.PayLookupService` → `Demo.AuditProcess` → `Demo.AuditOperation`
 
-4. **Verify audit store** (terminal):
+3. **Verify audit store** (terminal):
    ```objectscript
    zn "USER"
    zwrite ^InteropMCP.Invocations
@@ -120,7 +105,7 @@ For opencode, add the server to `opencode.json` and restart the session:
    SELECT * FROM br_musketeers.InteropMCP.Invocations ORDER BY InvocationId DESC
    ```
 
-5. **Verify demo audit payload**:
+4. **Verify demo audit payload**:
    ```objectscript
    zn "USER"
    zwrite ^InteropMCP.Demo.AuditD
