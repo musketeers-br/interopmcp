@@ -54,6 +54,14 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      ```bash
      opencode
      ```
+   - Config (`opencode.json`):
+     ```json
+     "InteropMCP": {
+       "type": "remote",
+       "url": "http://localhost:8080/mcp/interopmcp",
+       "enabled": true
+     }
+     ```
 
    **Claude Code**
    - Create `.mcp.json` in the repo root:
