@@ -160,12 +160,21 @@ structures. The trace is produced by the production components themselves.
 ## Project layout
 
 ```
-src/br/musketeers/InteropMCP/    Gateway application (13 ObjectScript classes)
-src/br/musketeers/InteropMCP/Demo/        Demo production + request/response classes (container demo only)
-tests/br/musketeers/InteropMCP/  %UnitTest suites
-python/smoke/      External MCP client smoke harness
-docs/interop-mcp/  Detailed documentation
-specs/001-interop-mcp/  Specification artifacts (spec, plan, contracts, tasks)
+src/
+  br/
+    musketeers/
+      InteropMCP/              Gateway application (13 ObjectScript classes)
+      InteropMCP/Demo/         Demo production + request/response classes (container demo only)
+tests/
+  br/
+    musketeers/
+      InteropMCP/              %UnitTest suites
+python/
+  smoke/                       External MCP client smoke harness
+docs/
+  interop-mcp/                 Detailed documentation
+specs/
+  001-interop-mcp/             Specification artifacts (spec, plan, contracts, tasks)
 ```
 
 ## Documentation
