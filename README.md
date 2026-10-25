@@ -44,19 +44,46 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    docker compose up -d --build
    ```
 
-5. **Open opencode in this repo**
+5. **Connect your AI coding assistant to the MCP endpoint**
 
-   The repo already includes `opencode.json` with the InteropMCP server configured.
+   The MCP server runs at `http://localhost:8080/mcp/interopmcp`. Configure your preferred tool:
 
-   ```bash
-   opencode
-   ```
+   **opencode** (pre-configured in this repo)
+   - The repo already includes `opencode.json` with InteropMCP configured
+   - Just run:
+     ```bash
+     opencode
+     ```
+
+   **Claude Code**
+   - Create `.mcp.json` in the repo root:
+     ```json
+     {
+       "mcpServers": {
+         "interopmcp": {
+           "url": "http://localhost:8080/mcp/interopmcp"
+         }
+       }
+     }
+     ```
+   - Restart Claude Code
+
+   **GitHub Copilot (VS Code)**
+   - Add to VS Code `settings.json`:
+     ```json
+     "mcp": {
+       "servers": {
+         "interopmcp": {
+           "url": "http://localhost:8080/mcp/interopmcp"
+         }
+       }
+     }
+     ```
+   - Reload VS Code window (Ctrl+Shift+P → "Developer: Reload Window")
 
 6. **Test it**
-
-   In opencode chat, run:
-
-   > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
+   - In your AI assistant's chat, run:
+     > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
 
 **MCP endpoint:** `http://localhost:8080/mcp/interopmcp`
 
