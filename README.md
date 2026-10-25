@@ -8,7 +8,7 @@ guardrails and full audit — without rewriting a single line of integration cod
 Built on the InterSystems AI HUB framework in ObjectScript (`%AI.ToolSet`, `%AI.Tool`,
 `%AI.MCP.Service`) and deployed as a containerized workload.
 
-## Get running fast
+## Quick start
 
 The AI Hub image is **not on Docker Hub** — you must download it from the InterSystems EAP Portal first, then load it locally.
 
@@ -104,8 +104,6 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
 
 **MCP endpoint:** `http://localhost:8080/mcp/interopmcp`
 
-> **See [Quick start](#quick-start) for detailed setup.**
-
 ## Features
 
 - **Automatic tool discovery** — scans a running production for Business Services enabled
@@ -124,38 +122,6 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
   tool catalog; production autostarts with IRIS; a sidecar supervises the MCP bridge.
 - **Governance split** — the IPM module ships only the gateway application; the demo
   production lives only in the container build.
-
-## Quick start
-
-Detailed setup steps:
-
-### 1. Download the AI Hub container image
-
-1. Go to the [InterSystems Early Access Program Portal](https://evaluation.intersystems.com/Eval/early-access/AIHub) and download the AI Hub container for your platform.
-   - File ends with `docker.tar.gz`
-   - Choose **arm64** for macOS (Apple Silicon), **amd64** for Linux/Windows
-
-2. Load the image into Docker:
-   ```bash
-   docker load -i /path/to/iris-community-2026.3.0AI.xxx-docker.tar.gz
-   ```
-   Verify with `docker images` — you should see something like:
-   ```
-   docker.iscinternal.com/docker-intersystems/intersystems/iris-community   2026.3.0AI.154.0   <image-id>
-   ```
-   > **Note:** The version includes a build number (e.g., `2026.3.0AI.154.0`), not just `2026.3.0AI`.
-
-3. Update the `Dockerfile` in this repo — change the `FROM` line to match the exact image name printed above.
-
-### 2. Build and start
-
-```bash
-docker compose up -d --build
-```
-
-The build provisions everything: MCP endpoint (`/mcp/interopmcp`), demo production
-(`br.musketeers.InteropMCP.Demo.Production`) with the BS→BP→BO trace chain, tool catalog, and the
-`iris-mcp-server` bridge (supervised).
 
 ## Architecture at a glance
 
