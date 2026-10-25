@@ -5,8 +5,7 @@ IRIS InteropMCP turns **InterSystems Interoperability Productions** into native
 tools can invoke legacy Business Services through natural language — with per-tool security
 guardrails and full audit — without rewriting a single line of integration code.
 
-Built on the InterSystems AI HUB framework in ObjectScript (`%AI.ToolSet`, `%AI.Tool`,
-`%AI.MCP.Service`) and deployed as a containerized workload.
+Built on the InterSystems AI HUB framework in ObjectScript and deployed as a containerized workload.
 
 ## Quick start
 
@@ -106,8 +105,13 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      SELECT * FROM br_musketeers_InteropMCP.Invocations ORDER BY InvocationId DESC
      ```
    - **6.4 Verify demo audit payload**:
-     ```
+
+     ```bash
      docker exec -it ai-hub-dev-template-iris-1 iris session iris -U IRISAPP
+     ```
+
+     Then run:
+     ```objectscript
      zwrite ^InteropMCP.Demo.AuditD
      ```
 
