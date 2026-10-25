@@ -1,0 +1,54 @@
+services:
+  iris:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: 
+      .env
+    restart: always
+    entrypoint: ["/bin/bash", "-c", "iris start IRIS && tail -f /dev/null"]
+    environment:
+      - ISC_CPF_MERGE_FILE=/home/irisowner/dev/merge.cpf
+    ports:
+      - 1972:1972
+      - 52773:52773
+      - 8080:8080
+    volumes:
+      - ./:/home/irisowner/dev
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/1972'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    container_name: ai-hub-dev-template-iris-1
+
+  mcp-launcher:
+    image: docker:24-cli
+    container_name: ai-hub-mcp-launcher
+    depends_on:
+      iris:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - CONTAINER_NAME=ai-hub-dev-template-iris-1
+    command: >
+      sh -c "
+        echo 'Waiting for IRIS container to be healthy...';
+        while ! docker inspect -f '{{.State.Health.Status}}' $${CONTAINER_NAME} 2>/dev/null | grep -q 'healthy'; do sleep 2; done;
+        sleep 10;
+        echo 'Running bootstrap (gateway endpoint + demo production)';
+        docker exec $${CONTAINER_NAME} sh -c 'iris session IRIS < /home/irisowner/dev/bootstrap-demo.script';
+        echo 'Starting iris-mcp-server';
+        docker exec -d $${CONTAINER_NAME} sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run > /tmp/mcp.log 2>&1';
+        echo 'Supervising mcp-server';
+        while true; do
+          sleep 30;
+          if ! docker exec $${CONTAINER_NAME} sh -c 'pgrep -f iris-mcp-server > /dev/null 2>&1'; then
+            echo 'mcp-server down; restarting';
+            docker exec -d $${CONTAINER_NAME} sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run > /tmp/mcp.log 2>&1';
+          fi;
+        done
+      "
+    restart: unless-stopped

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "iris-agentic-dev": {
+      "type": "local",
+      "command": [
+        "/usr/local/bin/iris-agentic-dev",
+        "mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "IRIS_HOST": "localhost",
+        "IRIS_WEB_PORT": "52773",
+        "IRIS_USERNAME": "_SYSTEM",
+        "IRIS_PASSWORD": "SYS",
+        "IRIS_NAMESPACE": "IRISAPP"
+      }
+    },
+    "InteropMCP": {
+      "type": "remote",
+      "url": "http://localhost:8080/mcp",
+      "enabled": true
+    }
+  },
+  "permission": {
+    "external_directory": {
+      "*": "allow"
+    }
+  }
+}

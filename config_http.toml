@@ -1,0 +1,15 @@
+[[iris]]
+name = "local"
+server = { host = "localhost", port = 1972, username = "SuperUser", password = "SYS" }
+endpoints = [
+    {path = "/mcp/interopmcp" }
+]
+
+[mcp]
+transport = "http"
+port=8080
+host="0.0.0.0"
+
+# Allow connections without any Authorization headers
+# Connections to an authenticated endpoint will still be blocked by the WG auth
+allow_anonymous = true 

@@ -1,0 +1,9 @@
+zn "IRISAPP"
+set sc = ##class(br.musketeers.InteropMCP.Setup).Run("dev")
+write !, "GatewaySetup: ", $SYSTEM.Status.GetErrorText(sc)
+set sc = $system.OBJ.LoadDir("/home/irisowner/dev/src/br/musketeers/InteropMCP/Demo","ck",,1)
+write !, "DemoCompile: ", $SELECT(sc=1:"ok", 1:$SYSTEM.Status.GetErrorText(sc))
+set sc = ##class(br.musketeers.InteropMCP.Demo.Setup).Run()
+write !, "DemoSetup: ", $SYSTEM.Status.GetErrorText(sc)
+write !, "Health: ", ##class(br.musketeers.InteropMCP.Health).GetStatus().%ToJSON()
+halt

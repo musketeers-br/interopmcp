@@ -1,0 +1,39 @@
+    zn "%SYS"
+
+    // Unexpire passwords and set up passwordless mode to simplify dev use.
+    // ** Comment out these two line for Production use **
+    do ##class(Security.Users).UnExpireUserPasswords("*")
+    
+
+    set tURL = "https://pm.community.intersystems.com/packages/zpm/latest/installer"
+    set r = ##class(%Net.HttpRequest).%New()
+    set r.Server = "pm.community.intersystems.com"
+    set r.SSLConfiguration = "ISC.FeatureTracker.SSL.Config"
+    do r.Get("/packages/zpm/latest/installer")
+    do $system.OBJ.LoadStream(r.HttpResponse.Data,"c")
+
+    // Enable callin for Embedded Python - see merge.cpf
+    do ##class(Security.Services).Get("%Service_CallIn",.prop)
+    set prop("Enabled")=1
+    set prop("AutheEnabled")=48
+    do ##class(Security.Services).Modify("%Service_CallIn",.prop)
+
+    zpm "enable -community"
+
+    zn "IRISAPP"
+
+    zpm "install vscode-per-namespace-settings"
+
+    // Configure %UnitTest in IRISAPP to suit the VS Code extension
+    set ^UnitTestRoot="/usr/irissys/.vscode/IRISAPP/UnitTestRoot"
+
+    zpm "load /home/irisowner/dev/ -v":1:1
+
+// Compile the demo production classes (container-only — NOT part of the IPM module,
+// which installs the production-agnostic InteropMCP core).
+    Do $system.OBJ.LoadDir("/home/irisowner/dev/src/br/musketeers/InteropMCP/Demo","ck",,1)
+
+    // Provision gateway endpoint (core, framework AI HUB pattern) + demo production.
+    Do ##class(br.musketeers.InteropMCP.Setup).Run("dev")
+    Do ##class(br.musketeers.InteropMCP.Demo.Setup).Run()
+    halt
