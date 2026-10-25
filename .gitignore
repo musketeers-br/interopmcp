@@ -1,0 +1,33 @@
+# ObjectScript / IRIS local artifacts
+*.obj
+*.o
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+
+# Universal
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+*.log
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+*.key
+*.crt
+*.pem
