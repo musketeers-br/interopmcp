@@ -140,20 +140,49 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
 ## Architecture at a glance
 
 ```mermaid
-flowchart LR
-    A[MCP client / opencode] -->|JSON-RPC| B[iris-mcp-server bridge :8080]
-    B --> C[Web app /mcp/interopmcp - Type 18]
-    C --> D[br.musketeers.InteropMCP.MCPService - %AI.MCP.Service]
-    D --> E[br.musketeers.InteropMCP.ToolSet]
-    E --> F[GeneratedTools + InvocationStatusTools]
-    F --> G[Guardrails]
-    G -->|proceed| H[Invoker]
-    H -->|fires BS only| I[Business Service]
-    I -->|SendRequestSync| J[AuditProcess - BP]
-    J -->|SendRequestSync| K[AuditOperation - BO]
-    K --> L[^InteropMCP.Demo.AuditD payload]
-    I -.-> M[Ens.MessageHeader + Visual Trace]
-    H -.-> N[Invocations audit store]
+flowchart TD
+    subgraph Client["MCP Client"]
+        A[MCP client / opencode]
+    end
+
+    subgraph Bridge["MCP Bridge"]
+        B[iris-mcp-server bridge :8080]
+    end
+
+    subgraph Gateway["MCP Gateway (Web app /mcp/interopmcp)"]
+        C[Web app /mcp/interopmcp - Type 18]
+        D[br.musketeers.InteropMCP.MCPService - %AI.MCP.Service]
+        E[br.musketeers.InteropMCP.ToolSet]
+        F[GeneratedTools + InvocationStatusTools]
+        G[Guardrails]
+        H[Invoker]
+    end
+
+    subgraph Production["Interop Production"]
+        I[Business Service]
+        J[AuditProcess - BP]
+        K[AuditOperation - BO]
+    end
+
+    subgraph Storage["Storage & Audit"]
+        L[^InteropMCP.Demo.AuditD payload]
+        M[Ens.MessageHeader + Visual Trace]
+        N[Invocations audit store]
+    end
+
+    A -->|JSON-RPC| B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G -->|proceed| H
+    H -->|fires BS only| I
+    I -->|SendRequestSync| J
+    J -->|SendRequestSync| K
+    K --> L
+    I -.-> M
+    H -.-> N
 ```
 
 The MCP gateway only **fires** Business Services — it never writes into production
