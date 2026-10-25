@@ -12,24 +12,41 @@ Built on the InterSystems AI HUB framework in ObjectScript (`%AI.ToolSet`, `%AI.
 
 The AI Hub image is **not on Docker Hub** — you must download it from the InterSystems EAP Portal first, then load it locally.
 
-```bash
-# 1. Download from https://evaluation.intersystems.com/Eval/early-access/AIHub
-#    Get the .docker.tar.gz for your platform (arm64 for macOS, amd64 for Linux/Windows)
+1. **Download the AI Hub image**
+   - Go to [https://evaluation.intersystems.com/Eval/early-access/AIHub](https://evaluation.intersystems.com/Eval/early-access/AIHub)
+   - Download the `.docker.tar.gz` for your platform:
+     - **arm64** for macOS (Apple Silicon)
+     - **amd64** for Linux/Windows
 
-# 2. Load the image into Docker
-docker load -i /path/to/iris-community-2026.3.0AI.xxx-docker.tar.gz
+2. **Load the image into Docker**
 
-# 3. Update the Dockerfile FROM line to match the loaded image tag (e.g. 2026.3.0AI.154.0)
+   ```bash
+   docker load -i /path/to/iris-community-2026.3.0AI.xxx-docker.tar.gz
+   ```
 
-# 4. Start everything
-docker compose up -d --build
+3. **Update the Dockerfile**
+   - Edit `Dockerfile` and change the `FROM` line to match the loaded image tag
+   - Example tag: `2026.3.0AI.154.0`
 
-# 5. Open opencode in this repo (opencode.json already configured)
-opencode
+4. **Start the container**
 
-# 6. Test it — in opencode chat:
-# > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
-```
+   ```bash
+   docker compose up -d --build
+   ```
+
+5. **Open opencode in this repo**
+
+   The repo already includes `opencode.json` with the InteropMCP server configured.
+
+   ```bash
+   opencode
+   ```
+
+6. **Test it**
+
+   In opencode chat, run:
+
+   > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
 
 **MCP endpoint:** `http://localhost:8080/mcp/interopmcp`
 
