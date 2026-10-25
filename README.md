@@ -57,13 +57,13 @@ The build provisions everything: MCP endpoint (`/mcp/interopmcp`), demo producti
 (`br.musketeers.InteropMCP.Demo.Production`) with the BS→BP→BO trace chain, tool catalog, and the
 `iris-mcp-server` bridge (supervised).
 
-Connect any MCP client — or opencode — to:
+Connect any MCP client to:
 
 ```
 http://localhost:8080/mcp/interopmcp
 ```
 
-Exposed tools (from the bundled demo production):
+Exposed tools (from the bundled demo production `br.musketeers.InteropMCP.Demo.Production`):
 
 | Tool | Classification | Purpose |
 |------|----------------|---------|
@@ -88,6 +88,33 @@ For opencode, add the server to `opencode.json` and restart the session:
   "enabled": true
 }
 ```
+
+## Quick tutorial with opencode
+
+1. **Configure opencode** (see above) and restart.
+
+2. **Invoke a tool** — in opencode chat:
+   > "Use the PayLookup tool with OrderId 88201 and CustomerId C-1"
+
+3. **Verify in IRIS Management Portal**:
+   - Go to **Interoperability → View Messages** → filter by today → you'll see the `Ens.MessageHeader` entry with the BS→BP→BO chain
+   - Click **Visual Trace** on that message to see the full flow: `Demo.PayLookupService` → `Demo.AuditProcess` → `Demo.AuditOperation`
+
+4. **Verify audit store** (terminal):
+   ```objectscript
+   zn "USER"
+   zwrite ^InteropMCP.Invocations
+   ```
+   Or via SQL:
+   ```sql
+   SELECT * FROM br_musketeers.InteropMCP.Invocations ORDER BY InvocationId DESC
+   ```
+
+5. **Verify demo audit payload**:
+   ```objectscript
+   zn "USER"
+   zwrite ^InteropMCP.Demo.AuditD
+   ```
 
 ## Architecture at a glance
 
