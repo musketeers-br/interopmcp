@@ -18,7 +18,10 @@
     },
     "InteropMCP": {
       "type": "remote",
-      "url": "http://localhost:8080/mcp/interopmcp",
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "{env:INTEROPMCP_BASIC}"
+      },
       "enabled": true
     }
   },

@@ -1,0 +1,9 @@
+zn "%SYS"
+do ##class(Security.System).Get(, .sys)
+set sys("AuditEnabled") = 1
+do ##class(Security.System).Modify(.sys)
+zn "IRISAPP"
+set sc = ##class(br.musketeers.InteropMCP.Setup).Run("prod")
+do ##class(br.musketeers.InteropMCP.Demo.Setup).Run()
+write !, "GatewaySetup: ", $SYSTEM.Status.GetErrorText(sc)
+halt

@@ -23,4 +23,22 @@ XData Definition [ MimeType = text/xml ]
 </ToolSet>
 }
 
+/// Dispatches a tool call to the class that owns the tool. A fresh instance
+/// of the owning class is created for every call: the AI HUB caches the
+/// toolset instance - and the tool instances it creates - for the lifetime
+/// of the serving process, and a cached instance keeps the class definition
+/// it was created with. Creating the instance per call makes a recompiled
+/// generated-tools class effective without restarting the process, which is
+/// what a catalog rebuild produces.
+Method %Invoke(toolname As %String, args As %DynamicObject) As %Any
+{
+    Set tool = $ZCONVERT(toolname, "U")
+    If tool = "GETINVOCATIONSTATUS" {
+        Set instance = ##class(br.musketeers.InteropMCP.InvocationStatusTools).%New()
+        Quit instance.%Invoke(toolname, args)
+    }
+    Set instance = ##class(br.musketeers.InteropMCP.GeneratedTools).%New()
+    Quit instance.%Invoke(toolname, args)
+}
+
 }

@@ -54,17 +54,41 @@ ClassMethod CreateRequest(pInvocationId As %String, Output pApprovalId As %Strin
 ClassMethod Approve(pApprovalId As %String, pApprover As %String) As %Status
 {
     Set rid = ""
-    &sql(SELECT ID INTO :rid FROM br.musketeers.InteropMCP.Approvals WHERE ApprovalId = :pApprovalId)
+    &sql(SELECT ID INTO :rid FROM br_musketeers_InteropMCP.Approvals WHERE ApprovalId = :pApprovalId)
     If rid = "" Quit $$$ERROR($$$GeneralError, "Approval not found: "_pApprovalId)
     Set ap = ..%OpenId(rid)
+    If ap.Decision '= "pending" Quit $$$ERROR($$$GeneralError, "Approval already decided")
     Set ap.Decision = "approved"
     Set ap.Approver = pApprover
     Set ap.DecidedAt = $ZDateTime($Horolog, 3)
+    Set sc = ap.%Save()
+    If $$$ISERR(sc) Quit sc
     Set logData = ##class(%DynamicObject).%New()
     Do logData.%Set("approval", pApprovalId)
     Do logData.%Set("approver", pApprover)
     Do ##class(br.musketeers.InteropMCP.Log).Write("info", "approval", "Approved", logData)
-    Quit ap.%Save()
+
+    // Release the gated invocation
+    Set invId = ap.InvocationId
+    Set invRid = ##class(br.musketeers.InteropMCP.Invocations).GetRowId(invId)
+    If invRid '= "" {
+        Set inv = ##class(br.musketeers.InteropMCP.Invocations).%OpenId(invRid)
+        Set sc = ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(invId, "executing", "", "", 0)
+        If $$$ISOK(sc) {
+            // Replay original call
+            Set params = ##class(%DynamicObject).%FromJSON(inv.Parameters)
+            Set agent = inv.AgentIdentity
+            // Resolve tool name from invocation
+            Set toolName = inv.ToolName
+            Set scInv = ##class(br.musketeers.InteropMCP.Invoker).Invoke(toolName, params, agent, .dummyId, .resp, invId)
+            If $$$ISERR(scInv) {
+                Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(invId, "failed", "", "Approval replay failed", 0)
+            } Else {
+                // Invoker already updated status to completed with serialized response
+            }
+        }
+    }
+    Quit sc
 }
 
 /// Records a rejection with a mandatory reason. The gated invocation is
@@ -73,19 +97,26 @@ ClassMethod Approve(pApprovalId As %String, pApprover As %String) As %Status
 ClassMethod Reject(pApprovalId As %String, pApprover As %String, pReason As %String) As %Status
 {
     Set rid = ""
-    &sql(SELECT ID INTO :rid FROM br.musketeers.InteropMCP.Approvals WHERE ApprovalId = :pApprovalId)
+    &sql(SELECT ID INTO :rid FROM br_musketeers_InteropMCP.Approvals WHERE ApprovalId = :pApprovalId)
     If rid = "" Quit $$$ERROR($$$GeneralError, "Approval not found: "_pApprovalId)
     Set ap = ..%OpenId(rid)
+    If ap.Decision '= "pending" Quit $$$ERROR($$$GeneralError, "Approval already decided")
     Set ap.Decision = "rejected"
     Set ap.Approver = pApprover
     Set ap.DecidedAt = $ZDateTime($Horolog, 3)
     Set ap.Reason = pReason
+    Set sc = ap.%Save()
+    If $$$ISERR(sc) Quit sc
     Set logData = ##class(%DynamicObject).%New()
     Do logData.%Set("approval", pApprovalId)
     Do logData.%Set("approver", pApprover)
     Do logData.%Set("reason", pReason)
     Do ##class(br.musketeers.InteropMCP.Log).Write("warn", "approval", "Rejected", logData)
-    Quit ap.%Save()
+
+    // Mark invocation as rejected
+    Set invId = ap.InvocationId
+    Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(invId, "rejected", "", pReason, 0)
+    Quit sc
 }
 
 /// Operator cancellation of a stale pending item. Implemented as a rejection

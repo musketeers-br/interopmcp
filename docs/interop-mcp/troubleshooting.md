@@ -15,6 +15,27 @@ Runbook: symptom → diagnosis → fix, plus the ObjectScript/UDL dialect rules 
 | Build errors? | Look for `registry`-component entries in `^InteropMCP.LogD`; duplicate tool names fail the build naming both services |
 | Bridge discovery cached? | Restart the bridge (the launcher supervisor does this; manual: `pkill -f iris-mcp-server` inside the container, then re-run the launcher start line) |
 
+### opencode: `InteropMCP Failed to get tools` / `server unavailable` (401)
+
+The client started without an `Authorization` header. Check the variable in the
+**process** environment, not just in the terminal:
+
+```bash
+printenv INTEROPMCP_BASIC   # must print "Basic <base64>"
+```
+
+`opencode.json` uses `{env:INTEROPMCP_BASIC}`, interpolated from the environment at startup.
+If the auth contract changed and only `opencode.json`/`.env` were updated, `~/.bashrc` may
+still export an old variable (e.g. `MCP_DEMO_AUTH`) or nothing. Fix `~/.bashrc`, open a
+**new terminal** and restart opencode. A **rebuild does not help** — `~/.bashrc` and `.env`
+are outside the image. See `authentication.md` §13.
+
+If `tools/list` succeeds but a call fails with `Discovery failed ... /v1/services — 401`, call
+the tool by the **exact name from `tools/list`** (prefixed, e.g. `mcp_interopmcp_PayLookup`).
+The unprefixed alias triggers a rediscovery fallback that can be refused; the prefixed name
+uses the already-registered service. Periodic background-refresh 401s on the same URL are
+logged but do not block prefixed calls.
+
 ### Tool call returns `"0 ⟨binary bytes⟩..."` (serialized object garbage)
 
 A `%Status` **error** object serialized raw. Decode it in the IRIS terminal:
@@ -57,7 +78,7 @@ session launched too early prints `Sign-on inhibited`). Re-run the idempotent bo
 
 ```bash
 docker exec -i ai-hub-dev-template-iris-1 sh -c \
-  'iris session IRIS < /home/irisowner/dev/bootstrap-demo.script'
+  'iris session IRIS < /home/irisowner/dev/bootstrap-gateway.script'
 ```
 
 Build-time provisioning (web apps + catalog + `Autostart`) is baked into the image, so a

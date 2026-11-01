@@ -2,59 +2,119 @@
 /// Do not edit manually: this file is regenerated on every catalog build.
 Class br.musketeers.InteropMCP.GeneratedTools Extends %AI.Tool
 {
-  ClassMethod BatchRun(ReportSet As %String) As %Status
+  ClassMethod BatchRun(ReportSet As %String) As %DynamicObject
   {
+    Set result = ##class(%DynamicObject).%New()
     Set params = ##class(%DynamicObject).%New()
     Do params.%Set("ReportSet", ReportSet)
     Set proceed = 0
     Set holdId = ""
-    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("BatchRun", params, "agent", .proceed, .holdId, .gsc)
-    If $$$ISERR(gsc) Quit gsc
-    If 'proceed Quit $$$OK
-    Set sc = ##class(br.musketeers.InteropMCP.Invoker).Invoke("BatchRun", params, "agent", .invId, .resp)
-    Quit sc
+    Set invId = ""
+    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("BatchRun", params, ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent(), .proceed, .holdId, .invId, .gsc)
+    If $$$ISERR(gsc) {
+      Do result.%Set("_status", "error")
+      Do result.%Set("message", "Guardrail error")
+      Quit result
+    }
+    If 'proceed {
+      Do result.%Set("_status", "held")
+      Do result.%Set("invocationId", invId)
+      Do result.%Set("approvalId", holdId)
+      Do result.%Set("message", "Critical call held for approval. Use GetInvocationStatus with invocationId to check progress.")
+      Quit result
+    }
+    Set sc = ##class(br.musketeers.InteropMCP.Invoker).Invoke("BatchRun", params, ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent(), .invId, .resp)
+    Do result.%Set("_status", "ok")
+    Do result.%Set("invocationId", invId)
+    Do result.%Set("message", "Tool executed successfully.")
+    Quit result
   }
 
-  ClassMethod CustomerUpdate(CustomerId As %String, NewAddress As %String) As %Status
+  ClassMethod CustomerUpdate(CustomerId As %String, NewAddress As %String) As %DynamicObject
   {
+    Set result = ##class(%DynamicObject).%New()
     Set params = ##class(%DynamicObject).%New()
     Do params.%Set("CustomerId", CustomerId)
     Do params.%Set("NewAddress", NewAddress)
     Set proceed = 0
     Set holdId = ""
-    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("CustomerUpdate", params, "agent", .proceed, .holdId, .gsc)
-    If $$$ISERR(gsc) Quit gsc
-    If 'proceed Quit $$$OK
-    Set sc = ##class(br.musketeers.InteropMCP.Invoker).Invoke("CustomerUpdate", params, "agent", .invId, .resp)
-    Quit sc
+    Set invId = ""
+    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("CustomerUpdate", params, ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent(), .proceed, .holdId, .invId, .gsc)
+    If $$$ISERR(gsc) {
+      Do result.%Set("_status", "error")
+      Do result.%Set("message", "Guardrail error")
+      Quit result
+    }
+    If 'proceed {
+      Do result.%Set("_status", "held")
+      Do result.%Set("invocationId", invId)
+      Do result.%Set("approvalId", holdId)
+      Do result.%Set("message", "Critical call held for approval. Use GetInvocationStatus with invocationId to check progress.")
+      Quit result
+    }
+    Set sc = ##class(br.musketeers.InteropMCP.Invoker).Invoke("CustomerUpdate", params, ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent(), .invId, .resp)
+    Do result.%Set("_status", "ok")
+    Do result.%Set("invocationId", invId)
+    Do result.%Set("message", "Tool executed successfully.")
+    Quit result
   }
 
-  ClassMethod PayLookup(CustomerId As %String = "", OrderId As %String) As %Status
+  ClassMethod PayLookup(CustomerId As %String = "", OrderId As %String) As %DynamicObject
   {
+    Set result = ##class(%DynamicObject).%New()
     Set params = ##class(%DynamicObject).%New()
     Do params.%Set("CustomerId", CustomerId)
     Do params.%Set("OrderId", OrderId)
     Set proceed = 0
     Set holdId = ""
-    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("PayLookup", params, "agent", .proceed, .holdId, .gsc)
-    If $$$ISERR(gsc) Quit gsc
-    If 'proceed Quit $$$OK
-    Set sc = ##class(br.musketeers.InteropMCP.Invoker).Invoke("PayLookup", params, "agent", .invId, .resp)
-    Quit sc
+    Set invId = ""
+    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("PayLookup", params, ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent(), .proceed, .holdId, .invId, .gsc)
+    If $$$ISERR(gsc) {
+      Do result.%Set("_status", "error")
+      Do result.%Set("message", "Guardrail error")
+      Quit result
+    }
+    If 'proceed {
+      Do result.%Set("_status", "held")
+      Do result.%Set("invocationId", invId)
+      Do result.%Set("approvalId", holdId)
+      Do result.%Set("message", "Critical call held for approval. Use GetInvocationStatus with invocationId to check progress.")
+      Quit result
+    }
+    Set sc = ##class(br.musketeers.InteropMCP.Invoker).Invoke("PayLookup", params, ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent(), .invId, .resp)
+    Do result.%Set("_status", "ok")
+    Do result.%Set("invocationId", invId)
+    Do result.%Set("message", "Tool executed successfully.")
+    Quit result
   }
 
-  ClassMethod RiskCheck(Cnpj As %String, Scope As %String = "") As %Status
+  ClassMethod RiskCheck(Cnpj As %String, Scope As %String = "") As %DynamicObject
   {
+    Set result = ##class(%DynamicObject).%New()
     Set params = ##class(%DynamicObject).%New()
     Do params.%Set("Cnpj", Cnpj)
     Do params.%Set("Scope", Scope)
     Set proceed = 0
     Set holdId = ""
-    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("RiskCheck", params, "agent", .proceed, .holdId, .gsc)
-    If $$$ISERR(gsc) Quit gsc
-    If 'proceed Quit $$$OK
-    Set sc = ##class(br.musketeers.InteropMCP.Invoker).Invoke("RiskCheck", params, "agent", .invId, .resp)
-    Quit sc
+    Set invId = ""
+    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("RiskCheck", params, ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent(), .proceed, .holdId, .invId, .gsc)
+    If $$$ISERR(gsc) {
+      Do result.%Set("_status", "error")
+      Do result.%Set("message", "Guardrail error")
+      Quit result
+    }
+    If 'proceed {
+      Do result.%Set("_status", "held")
+      Do result.%Set("invocationId", invId)
+      Do result.%Set("approvalId", holdId)
+      Do result.%Set("message", "Critical call held for approval. Use GetInvocationStatus with invocationId to check progress.")
+      Quit result
+    }
+    Set sc = ##class(br.musketeers.InteropMCP.Invoker).Invoke("RiskCheck", params, ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent(), .invId, .resp)
+    Do result.%Set("_status", "ok")
+    Do result.%Set("invocationId", invId)
+    Do result.%Set("message", "Tool executed successfully.")
+    Quit result
   }
 
 }

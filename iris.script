@@ -1,4 +1,4 @@
-    zn "%SYS"
+zn "%SYS"
 
     // Unexpire passwords and set up passwordless mode to simplify dev use.
     // ** Comment out these two line for Production use **
@@ -29,11 +29,17 @@
 
     zpm "load /home/irisowner/dev/ -v":1:1
 
-// Compile the demo production classes (container-only — NOT part of the IPM module,
-// which installs the production-agnostic InteropMCP core).
+    // Compile the demo production classes (container-only — NOT part of the IPM module,
+    // which installs the production-agnostic InteropMCP core).
     Do $system.OBJ.LoadDir("/home/irisowner/dev/src/br/musketeers/InteropMCP/Demo","ck",,1)
 
     // Provision gateway endpoint (core, framework AI HUB pattern) + demo production.
-    Do ##class(br.musketeers.InteropMCP.Setup).Run("dev")
+    // Secured mode requires platform auditing; enable it before provisioning.
+    zn "%SYS"
+    do ##class(Security.System).Get(, .sys)
+    set sys("AuditEnabled") = 1
+    do ##class(Security.System).Modify(.sys)
+    zn "IRISAPP"
+    Do ##class(br.musketeers.InteropMCP.Setup).Run("prod")
     Do ##class(br.musketeers.InteropMCP.Demo.Setup).Run()
     halt

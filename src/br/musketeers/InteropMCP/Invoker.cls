@@ -23,14 +23,18 @@ Class br.musketeers.InteropMCP.Invoker Extends %RegisteredObject
 ///   its %Status; on success the invocation is marked completed
 /// Outputs: pInvocationId (processing reference for the audit store) and
 /// pResponse (envelope with the service name and response class).
-ClassMethod Invoke(pTool As %String, pParams As %DynamicObject, pAgent As %String, Output pInvocationId As %String, Output pResponse As %DynamicObject) As %Status
+ClassMethod Invoke(pTool As %String, pParams As %DynamicObject, pAgent As %String, Output pInvocationId As %String, Output pResponse As %DynamicObject, pReuseInvocationId As %String = "") As %Status
 {
     Set pResponse = ##class(%DynamicObject).%New()
-    Set pInvocationId = ""
     Set sc = ##class(br.musketeers.InteropMCP.Registry).GetToolDefinition(pTool, .def)
     If $$$ISERR(sc) Quit sc
-    Set sc = ##class(br.musketeers.InteropMCP.Invocations).CreateInvocation(pTool, pAgent, pParams, .pInvocationId)
-    If $$$ISERR(sc) Quit sc
+    Set agent = ##class(br.musketeers.InteropMCP.Guardrails).ResolveAgent(pAgent)
+    If pReuseInvocationId '= "" {
+        Set pInvocationId = pReuseInvocationId
+    } Else {
+        Set sc = ##class(br.musketeers.InteropMCP.Invocations).CreateInvocation(pTool, agent, pParams, .pInvocationId)
+        If $$$ISERR(sc) Quit sc
+    }
     Set requestClass = def.requestClass
     Set request = $CLASSMETHOD(requestClass, "%New")
     Set iter = pParams.%GetIterator()
@@ -50,7 +54,13 @@ ClassMethod Invoke(pTool As %String, pParams As %DynamicObject, pAgent As %Strin
             Do ##class(br.musketeers.InteropMCP.Log).Write("error", "invoker", "ProcessInput failed", logData)
         } Else {
             Do ##class(br.musketeers.InteropMCP.Log).Write("info", "invoker", "Business service executed", logData)
-            Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(pInvocationId, "completed", pResponse, "", 0)
+            // Serialize the Ens.Response into a DynamicObject for audit storage
+            If $IsObject(response) {
+                Set respDyn = ##class(%Library.DynamicObject).%FromObject(response)
+            } Else {
+                Set respDyn = ##class(%DynamicObject).%New()
+            }
+            Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(pInvocationId, "completed", respDyn, "", 0)
         }
     }
     Quit sc

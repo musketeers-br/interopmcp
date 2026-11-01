@@ -1,15 +1,18 @@
 [[iris]]
 name = "local"
-server = { host = "localhost", port = 1972, username = "SuperUser", password = "SYS" }
+server = { host = "localhost", port = 1972, username = "@{env:WG_USER}", password = "@{env:WG_PASS}" }
+pool = { min = 1, max = 1 }
+idle_timeout_secs = 60
+max_age_secs = 240
 endpoints = [
-    {path = "/mcp/interopmcp" }
+    { path = "/mcp/interopmcp" }
 ]
 
 [mcp]
 transport = "http"
-port=8080
-host="0.0.0.0"
+port = 8080
+host = "0.0.0.0"
 
-# Allow connections without any Authorization headers
-# Connections to an authenticated endpoint will still be blocked by the WG auth
-allow_anonymous = true 
+# Forward the caller's Authorization header; never substitute a shared
+# endpoint identity. IRIS makes the authentication and entitlement decision.
+allow_anonymous = false
