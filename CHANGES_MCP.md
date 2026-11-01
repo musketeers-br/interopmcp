@@ -57,3 +57,11 @@ Tipo corrigido de `http` para `remote` conforme documentação do OpenCode.
 * Apenas 1 instância IRIS. O MCP roda como processo filho dentro do mesmo container via `docker exec`.
 * Stdio permanece opcional in-container. Para uso no host, usar transporte HTTP.
 * O launcher garante que `Sample.MCPSetup.Run()` seja executado a cada boot.
+
+### 5. Fix iris-main.log ownership requirement (2026-10-27)
+* **Problema**: Container IRIS falhava ao iniciar com erro "Unable to find/open file iris-main.log"
+* **Causa**: Entrypoint `/iris-main` exige arquivo `iris-main.log` em `/home/irisowner/` com ownership `irisowner:irisowner` (UID:GID 51773:51773)
+* **Correção**:
+  - `Dockerfile`: `COPY --chown=51773:51773 iris-main.log /home/irisowner/iris-main.log`
+  - Documentação adicionada no README.md (Prerequisites)
+  - Validador atualizado com Passo 0 verificando arquivo e permissões

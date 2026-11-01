@@ -7,6 +7,26 @@ guardrails and full audit — without rewriting a single line of integration cod
 
 Built on the InterSystems AI HUB framework in ObjectScript and deployed as a containerized workload.
 
+## Prerequisites
+
+### iris-main.log (Required)
+The IRIS container entrypoint requires `iris-main.log` in the repo root with correct ownership:
+
+```bash
+# File must exist at repo root
+ls -la iris-main.log
+# Expected: -rw-rw-r--  1 51773 51773  ~145KB  iris-main.log
+
+# The file is committed at the repo root; to restore it from another AI Hub checkout:
+cp /path/to/ai-hub/iris-main.log .
+```
+
+**Why**: The base IRIS image (`/iris-main` entrypoint) attempts to write logs to this file in `/home/irisowner/`. Without correct ownership (`51773:51773` = `irisowner:irisowner`), the container fails to start with:
+```
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  Unable to find/open file iris-main.log in current directory /home/irisowner
+```
+
 ## Quick start
 
 The AI Hub image is **not on Docker Hub** — you must download it from the InterSystems EAP Portal first, then load it locally.
@@ -37,15 +57,44 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
 
    Otherwise, edit `Dockerfile` and change the `ARG IMAGE=...` line to match your loaded image tag.
 
-4. **Start the container**
+4. **Prepare credentials**
+
+   Create `.env` from `.env.example` and export the Basic auth header the opencode config uses:
 
    ```bash
-   docker compose up -d --build
+   cp .env.example .env
+   # Edit .env if needed, then add this export to ~/.bashrc so opencode
+   # inherits it on every launch:
+   export INTEROPMCP_BASIC="Basic $(printf 'mcp_demo:change-me' | base64 -w0)"
    ```
 
-5. **Connect your AI coding assistant to the MCP endpoint**
+   > `opencode.json` reads `{env:INTEROPMCP_BASIC}` from the process environment at startup.
+   > A transient `export` is lost on restart, and a container rebuild does **not** update
+   > `~/.bashrc`/`.env` (they live outside the image). Persist it in `~/.bashrc`, then open a
+   > new terminal.
 
-   The MCP server runs at `http://localhost:8080/mcp/interopmcp`. Configure your preferred tool:
+5. **Start the container**
+
+   For a clean rebuild (recommended the first time or after changes):
+
+   ```bash
+   docker compose down -v
+   docker compose build --no-cache
+   docker compose up -d
+   ```
+
+6. **Wait for health and verify**
+
+   ```bash
+   sleep 30
+   docker exec ai-hub-dev-template-iris-1 sh -c 'tail -n 30 /tmp/mcp.log'
+   ```
+
+   Look for `Business service executed` and no `Discovery failed` / `401 Unauthorized` lines.
+
+7. **Connect your AI coding assistant to the MCP endpoint**
+
+   The MCP server runs at `http://localhost:8080/mcp`. Configure your preferred tool:
 
    **opencode** (pre-configured in this repo)
    - The repo already includes `opencode.json` with InteropMCP configured
@@ -57,7 +106,8 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      ```json
      "InteropMCP": {
        "type": "remote",
-       "url": "http://localhost:8080/mcp/interopmcp",
+       "url": "http://localhost:8080/mcp",
+       "headers": { "Authorization": "{env:INTEROPMCP_BASIC}" },
        "enabled": true
      }
      ```
@@ -68,7 +118,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      {
        "mcpServers": {
          "interopmcp": {
-           "url": "http://localhost:8080/mcp/interopmcp"
+           "url": "http://localhost:8080/mcp"
          }
        }
      }
@@ -81,7 +131,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      "mcp": {
        "servers": {
          "interopmcp": {
-           "url": "http://localhost:8080/mcp/interopmcp"
+           "url": "http://localhost:8080/mcp"
          }
        }
      }
@@ -116,7 +166,19 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      halt
      ```
 
-**MCP endpoint:** `http://localhost:8080/mcp/interopmcp`
+**MCP endpoint:** `http://localhost:8080/mcp`
+
+## Troubleshooting / Rebuild from scratch
+
+| Sintoma | Causa provável | Solução |
+|---------|---------------|---------|
+| `"InteropMCP Failed to get tools"` | `INTEROPMCP_BASIC` ausente/obsoleto no ambiente do opencode (`~/.bashrc`) | `printenv INTEROPMCP_BASIC`; corrija o bloco no `~/.bashrc` (derive do `.env`), abra um novo terminal e reinicie o opencode. Rebuild só como fallback |
+| `"InteropMCP Failed to get tools"` com `INTEROPMCP_BASIC` correto | `iris-mcp-server` expõe `iris_status` com `inputSchema` vazio (`{}`), schema inválido para clientes MCP 2025-11-25 (opencode) | Suba a bridge com `run --status-tool false`; o `docker-compose.yml` já faz isso no start e no supervisor |
+| Bridge descobre 0 ferramentas | `config_http.toml` sem `WG_USER`/`WG_PASS` | Crie `.env` a partir de `.env.example` e exporte `INTEROPMCP_BASIC` |
+| `401` na descoberta | Credencial da bridge ausente ou inválida | Verifique `.env` e `INTEROPMCP_BASIC="Basic $(printf 'mcp_demo:change-me' | base64 -w0)"` |
+| `403` na execução da ferramenta | Usuário não é membro de `InteropMCPRoles` | Use `mcp_demo` (entitled) em vez de `mcp_demo2` (unentitled) |
+| Bridge não sobe | Supervisor não reinicia sozinho | `docker exec -d <container> sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run --status-tool false > /tmp/mcp.log 2>&1'` |
+| Catálogo desatualizado após rebuild | Bind-mount sobrescreve `GeneratedTools.cls` | O `BuildCatalog` roda durante o `docker build`; se necessário, re-rProvisione: `docker exec <container> iris session IRIS -U IRISAPP < bootstrap-gateway.script` |
 
 ## Features
 

@@ -26,7 +26,7 @@ Manual (re)bootstrap — safe to re-run at any time:
 
 ```bash
 docker exec -i ai-hub-dev-template-iris-1 sh -c \
-  'iris session IRIS < /home/irisowner/dev/bootstrap-demo.script'
+  'iris session IRIS < /home/irisowner/dev/bootstrap-gateway.script'
 ```
 
 Teardown:
@@ -174,11 +174,19 @@ Coverage expectation per the project quality gate: ≥ 90 % line coverage on the
 `opencode.json` ships with the gateway pre-configured:
 
 ```json
-"InteropMCP": { "type": "remote", "url": "http://localhost:8080/mcp/interopmcp", "enabled": true }
+"InteropMCP": {
+  "type": "remote",
+  "url": "http://localhost:8080/mcp/interopmcp",
+  "headers": { "Authorization": "{env:INTEROPMCP_BASIC}" },
+  "enabled": true
+}
 ```
 
-MCP servers load at session start — **restart opencode** after container rebuilds to
-refresh the tool list. Tool names are prefixed by the bridge (`mcp_interopmcp_PayLookup`, ...).
+`INTEROPMCP_BASIC` is interpolated from the environment of the **process that launches
+opencode**. Persist it in `~/.bashrc` (a transient `export` is lost on restart); see
+`authentication.md` §13. MCP servers load at session start — **restart opencode** after
+container rebuilds to refresh the tool list. Tool names are prefixed by the bridge
+(`mcp_interopmcp_PayLookup`, ...).
 Both `mcp-http` and `InteropMCP` servers in `opencode.json` reach the same bridge; the
 bridge aggregates discovered tools and routes by name prefix, so the same gateway tools may
 appear under either server.

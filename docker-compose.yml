@@ -5,22 +5,21 @@ services:
       dockerfile: Dockerfile
     env_file: 
       .env
-    restart: always
-    entrypoint: ["/bin/bash", "-c", "iris start IRIS && tail -f /dev/null"]
     environment:
       - ISC_CPF_MERGE_FILE=/home/irisowner/dev/merge.cpf
+      - INTEROPMCP_MODE=secured
     ports:
-      - 1972:1972
-      - 52773:52773
-      - 8080:8080
+      - 127.0.0.1:1972:1972
+      - 127.0.0.1:52773:52773
+      - 127.0.0.1:8080:8080
     volumes:
       - ./:/home/irisowner/dev
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/1972'"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "bash -c 'timeout 2 bash -c \"cat < /dev/null > /dev/tcp/localhost/1972\" && echo OK || exit 1'"]
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 90s
     container_name: ai-hub-dev-template-iris-1
 
   mcp-launcher:
@@ -31,23 +30,40 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - .env
     environment:
       - CONTAINER_NAME=ai-hub-dev-template-iris-1
+      - INTEROPMCP_BASIC
     command: >
       sh -c "
         echo 'Waiting for IRIS container to be healthy...';
         while ! docker inspect -f '{{.State.Health.Status}}' $${CONTAINER_NAME} 2>/dev/null | grep -q 'healthy'; do sleep 2; done;
         sleep 10;
-        echo 'Running bootstrap (gateway endpoint + demo production)';
-        docker exec $${CONTAINER_NAME} sh -c 'iris session IRIS < /home/irisowner/dev/bootstrap-demo.script';
-        echo 'Starting iris-mcp-server';
-        docker exec -d $${CONTAINER_NAME} sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run > /tmp/mcp.log 2>&1';
+        echo 'Provisioning MCP gateway endpoint';
+        docker exec $${CONTAINER_NAME} sh -c 'iris session IRIS < /home/irisowner/dev/bootstrap-gateway.script';
+        echo 'Starting iris-mcp-server (http transport)';
+        docker exec -d $${CONTAINER_NAME} sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run --status-tool false > /tmp/mcp.log 2>&1';
+        echo 'Waiting for mcp-server listener on :8080';
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+          if docker exec $${CONTAINER_NAME} sh -c 'grep -q Starting.HTTP.streaming.server /tmp/mcp.log 2>/dev/null'; then break; fi;
+          sleep 1;
+        done;
+        sleep 1;
+        echo 'Validating gateway configuration';
+        if [ -n \"$${INTEROPMCP_DEMO_PASSWORD}\" ]; then
+          docker exec -e INTEROPMCP_USER=\"$${INTEROPMCP_USER:-mcp_demo}\" -e INTEROPMCP_DEMO_PASSWORD=\"$${INTEROPMCP_DEMO_PASSWORD}\" $${CONTAINER_NAME} python3 /home/irisowner/dev/scripts/validate-mcp-config.py || echo 'WARNING: gateway configuration validation failed (see logs above)';
+        elif [ -n \"$${INTEROPMCP_BASIC}\" ]; then
+          docker exec -e INTEROPMCP_BASIC=\"$${INTEROPMCP_BASIC}\" $${CONTAINER_NAME} python3 /home/irisowner/dev/scripts/validate-mcp-config.py || echo 'WARNING: gateway configuration validation failed (see logs above)';
+        else
+          echo 'Skipping configuration validation (INTEROPMCP_DEMO_PASSWORD / INTEROPMCP_BASIC not set)';
+        fi;
         echo 'Supervising mcp-server';
         while true; do
           sleep 30;
-          if ! docker exec $${CONTAINER_NAME} sh -c 'pgrep -f iris-mcp-server > /dev/null 2>&1'; then
+          if ! docker exec $${CONTAINER_NAME} sh -c 'pgrep -f "[i]ris-mcp-server" > /dev/null 2>&1'; then
             echo 'mcp-server down; restarting';
-            docker exec -d $${CONTAINER_NAME} sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run > /tmp/mcp.log 2>&1';
+            docker exec -d $${CONTAINER_NAME} sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run --status-tool false > /tmp/mcp.log 2>&1';
           fi;
         done
       "

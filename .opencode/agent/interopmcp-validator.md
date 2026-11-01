@@ -7,6 +7,21 @@ Você é o agente validador do InteropMCP. Sua única responsabilidade é execut
 
 Você DEVE executar os seguintes passos, SEQUENCIALMENTE, e reportar o resultado de cada um:
 
+### Passo 0 — Verificação do iris-main.log (Obrigatório antes do build)
+Execute no terminal:
+```bash
+ls -la iris-main.log
+# Verificar: owner=51773, group=51773, perm=-rw-rw-r--
+```
+
+Critérios de sucesso do Passo 0:
+- Arquivo existe na raiz do repo
+- Owner: 51773 (irisowner)
+- Group: 51773 (irisowner)
+- Permissions: 664 (-rw-rw-r--)
+
+Se falhar: `cp ~/dev/ai-hub-dev-template/iris-main.log .` e repita verificação.
+
 ### Passo 1 — Reconstrução do zero
 Execute no terminal (bash), no diretório raiz do projeto:
 ```bash

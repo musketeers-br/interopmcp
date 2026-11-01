@@ -1,7 +1,7 @@
 Class br.musketeers.InteropMCP.TestTraceability Extends %UnitTest.TestCase
 {
 
-ClassMethod TraceTest() As %Status
+Method TestTraceability() As %Status
 {
     Set sc = ##class(br.musketeers.InteropMCP.Registry).BuildCatalog("br.musketeers.InteropMCP.Demo.Production")
     If $$$ISERR(sc) Quit sc
@@ -9,16 +9,19 @@ ClassMethod TraceTest() As %Status
     If $$$ISERR(sc) Quit sc
     Set count = ##class(br.musketeers.InteropMCP.Invocations).%Count()
     Do $$$AssertTrue(count >= 1, "Invocation recorded (FR-010)")
-    Set id = ""
-    Set id = $Order(^InteropMCP.InvocationsD(id))
+    Set id = $Order(^InteropMCP.InvocationsD(""))
     While id '= "" {
         Set inv = ##class(br.musketeers.InteropMCP.Invocations).%OpenId(id)
         If inv.ToolName = "PayLookup" {
-            Do $$$AssertEqual(inv.Status, "completed", "Invocation reached completed")
+            Do $$$AssertEquals(inv.Status, "completed", "Invocation reached completed")
             Do $$$AssertTrue(inv.StartedAt '= "", "Timestamp recorded")
+            Do $$$AssertTrue(inv.AgentIdentity '= "", "Caller identity recorded")
+            Do $$$AssertTrue(inv.Result '= "", "Business result recorded")
             Quit
         }
         Set id = $Order(^InteropMCP.InvocationsD(id))
     }
     Quit $$$OK
+}
+
 }

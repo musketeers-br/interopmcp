@@ -1,0 +1,1 @@
+- Alterar o comportamento de ter que alterar as classes originais da produção inserindo parametros. Pensar num meio menos invasivo. Talvez uma classe que herde de alguma classe de registro onde essa configuração e exposição ao MCP é declarada.

@@ -70,14 +70,25 @@ ClassMethod CreateInvocation(pTool As %String, pAgent As %String, pParams As %Dy
     Quit inv.%Save()
 }
 
+/// Returns the internal row id of the invocation carrying the given
+/// InvocationId GUID, or the empty string when no such invocation exists.
+/// The GUID is the public reference handed to agents, so it is the only
+/// handle callers have.
+ClassMethod GetRowId(pId As %String) As %String
+{
+    If pId = "" Quit ""
+    Set rid = ""
+    &sql(SELECT ID INTO :rid FROM br_musketeers_InteropMCP.Invocations WHERE InvocationId = :pId)
+    Quit rid
+}
+
 /// Applies a lifecycle transition to the invocation identified by pId
 /// (the InvocationId GUID). Persists the optional result payload, error
 /// message and native header id. Fails when pId is empty or unknown.
 ClassMethod UpdateStatus(pId As %String, pStatus As %String, pResult As %DynamicObject = "", pError As %String = "", pHeaderId As %Integer = 0) As %Status
 {
     If pId = "" Quit $$$ERROR($$$GeneralError, "InvocationId required")
-    Set rid = ""
-    &sql(SELECT ID INTO :rid FROM br.musketeers.InteropMCP.Invocations WHERE InvocationId = :pId)
+    Set rid = ..GetRowId(pId)
     If rid = "" Quit $$$ERROR($$$GeneralError, "Invocation not found: "_pId)
     Set inv = ..%OpenId(rid)
     Set inv.Status = pStatus
