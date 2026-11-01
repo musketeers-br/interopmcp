@@ -21,7 +21,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    
    ```bash
    [ -f iris-main.log ] || touch iris-main.log
-   chown 51773:51773 iris-main.log && chmod 666 iris-main.log && ls -la iris-main.log
+   sudo chown 51773:51773 iris-main.log && sudo chmod 666 iris-main.log && ls -la iris-main.log
    # Expected: -rw-rw-r-- 1 51773 51773 out/date_size iris-main.log
    ```
 
