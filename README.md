@@ -17,15 +17,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      - **arm64** for macOS (Apple Silicon)
      - **amd64** for Linux/Windows
 
-2. **Verify iris-main.log exists with correct ownership** (idempotent)
-   
-   ```bash
-   [ -f iris-main.log ] || touch iris-main.log
-   sudo chown 51773:51773 iris-main.log && sudo chmod 666 iris-main.log && ls -la iris-main.log
-   # Expected: -rw-rw-r-- 1 51773 51773 out/date_size iris-main.log
-   ```
-
-3. **Load the image into Docker**
+2. **Load the image into Docker**
 
    You can download **any** AI Hub version from the EAP Portal. For convenience, use the same version as this repo (`2026.3.0AI.154.0`) — then skip step 3.
 
@@ -33,6 +25,14 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    docker load -i /path/to/iris-community-2026.3.0AI.154.0-docker.tar.gz
    ```
    > **Tip:** The filename matches the tag, e.g., `iris-community-2026.3.0AI.154.0-docker.tar.gz`
+
+3. **Verify iris-main.log exists with correct ownership** (idempotent)
+   
+   ```bash
+   [ -f iris-main.log ] || touch iris-main.log
+   sudo chown 51773:51773 iris-main.log && sudo chmod 666 iris-main.log && ls -la iris-main.log
+   # Expected: -rw-rw-r-- 1 51773 51773 out/date_size iris-main.log
+   ```
 
 4. **Update the Dockerfile (only if using a different version)**
 
