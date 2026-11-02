@@ -76,7 +76,7 @@ opencode (headers.Authorization: Basic base64(user:pass))
 - Web app `/mcp/interopmcp`: `AutheEnabled=32`, `Resource="InteropMCP_Access"`, `MatchRoles=""` (vazio, não concede).
 - Recurso `InteropMCP_Access` criado; `InteropMCPRoles` tem `USE` sobre ele (e as permissões de banco que as tools exigem, ex.: `%DB_IRISAPP:RW` no demo).
 - Cada usuário do IRIS com a role `InteropMCPRoles` (ou outro role com `USE` no recurso).
-- `config_http.toml`: `allow_anonymous = false`; **sem** `endpoints[].username/password` (para não sobrescrever o header do cliente); `[[iris]] server.username/password` mantido como conta técnica do superserver.
+- `config_http.toml`: `allow_anonymous = false`; `endpoints[].username/password` informado via `@{env:WG_USER}`/`@{env:WG_PASS}` para discovery (o bridge nunca substitui o `Authorization` do cliente nas chamadas de tool call); `[[iris]] server.username/password` mantido como conta técnica do superserver.
 - opencode (por usuário): `"url": "http://localhost:8080/mcp"` (local) + `"headers": { "Authorization": "{env:INTEROPMCP_BASIC}" }` (ou `{file:...}`), onde `INTEROPMCP_BASIC` já inclui o prefixo `Basic `.
 
 ### TLS (Fase 1)
