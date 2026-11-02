@@ -178,6 +178,7 @@ ClassMethod ProvisionApplication(pMode As %String) As %Status
     Set props("DispatchClass") = ..#DispatchClass
     Set props("Type") = 18
     Set props("AutheEnabled") = 32
+    Set props("Resource") = ..#ResourceName
     Set props("NameSpace") = tNs
     Set props("Name") = "IRIS InteropMCP"
     Set props("MatchRoles") = ""

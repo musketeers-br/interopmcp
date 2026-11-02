@@ -7,26 +7,6 @@ guardrails and full audit — without rewriting a single line of integration cod
 
 Built on the InterSystems AI HUB framework in ObjectScript and deployed as a containerized workload.
 
-## Prerequisites
-
-### iris-main.log (Required)
-The IRIS container entrypoint requires `iris-main.log` in the repo root with correct ownership:
-
-```bash
-# File must exist at repo root
-ls -la iris-main.log
-# Expected: -rw-rw-r--  1 51773 51773  ~145KB  iris-main.log
-
-# The file is committed at the repo root; to restore it from another AI Hub checkout:
-cp /path/to/ai-hub/iris-main.log .
-```
-
-**Why**: The base IRIS image (`/iris-main` entrypoint) attempts to write logs to this file in `/home/irisowner/`. Without correct ownership (`51773:51773` = `irisowner:irisowner`), the container fails to start with:
-```
-terminate called after throwing an instance of 'std::runtime_error'
-  what():  Unable to find/open file iris-main.log in current directory /home/irisowner
-```
-
 ## Quick start
 
 The AI Hub image is **not on Docker Hub** — you must download it from the InterSystems EAP Portal first, then load it locally.
@@ -46,7 +26,15 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    ```
    > **Tip:** The filename matches the tag, e.g., `iris-community-2026.3.0AI.154.0-docker.tar.gz`
 
-3. **Update the Dockerfile (only if using a different version)**
+3. **Verify iris-main.log exists with correct ownership** (idempotent)
+   
+   ```bash
+   [ -f iris-main.log ] || touch iris-main.log
+   sudo chown 51773:51773 iris-main.log && sudo chmod 666 iris-main.log && ls -la iris-main.log
+   # Expected: -rw-rw-r-- 1 51773 51773 out/date_size iris-main.log
+   ```
+
+4. **Update the Dockerfile (only if using a different version)**
 
    The repo's `Dockerfile` defaults to `2026.3.0AI.154.0`:
    ```dockerfile
@@ -57,7 +45,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
 
    Otherwise, edit `Dockerfile` and change the `ARG IMAGE=...` line to match your loaded image tag.
 
-4. **Prepare credentials**
+5. **Prepare credentials**
 
    Create `.env` from `.env.example` and export the Basic auth header the opencode config uses:
 
@@ -73,7 +61,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    > `~/.bashrc`/`.env` (they live outside the image). Persist it in `~/.bashrc`, then open a
    > new terminal.
 
-5. **Start the container**
+6. **Start the container**
 
    For a clean rebuild (recommended the first time or after changes):
 
@@ -83,7 +71,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    docker compose up -d
    ```
 
-6. **Wait for health and verify**
+7. **Wait for health and verify**
 
    ```bash
    sleep 30
@@ -92,7 +80,7 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
 
    Look for `Business service executed` and no `Discovery failed` / `401 Unauthorized` lines.
 
-7. **Connect your AI coding assistant to the MCP endpoint**
+8. **Connect your AI coding assistant to the MCP endpoint**
 
    The MCP server runs at `http://localhost:8080/mcp`. Configure your preferred tool:
 

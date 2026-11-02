@@ -6,10 +6,13 @@ ClassMethod Run() As %Status
     Set sc = ##class(Ens.Director).StartProduction("br.musketeers.InteropMCP.Demo.Production")
     If $$$ISERR(sc) Set sc = $$$OK
     Set ^InteropMCP.Config("production") = "br.musketeers.InteropMCP.Demo.Production"
-    Set sc = ##class(br.musketeers.InteropMCP.Registry).BuildCatalog("br.musketeers.InteropMCP.Demo.Production")
-    If $$$ISERR(sc) Quit sc
+    Set buildSc = ##class(br.musketeers.InteropMCP.Registry).BuildCatalog("br.musketeers.InteropMCP.Demo.Production")
+    If $$$ISERR(buildSc) {
+        Do ##class(br.musketeers.InteropMCP.Log).Write("warn", "setup", "BuildCatalog failed during bootstrap", ##class(%DynamicObject).%New())
+    }
     Set sc = ..EnsureDemoUsers()
-    Quit sc
+    If $$$ISERR(sc) Quit sc
+    Quit buildSc
 }
 
 ClassMethod EnsureDemoUsers() As %Status
