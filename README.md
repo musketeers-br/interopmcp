@@ -74,11 +74,10 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
 7. **Wait for health and verify**
 
    ```bash
-   sleep 30
-   docker exec ai-hub-dev-template-iris-1 sh -c 'tail -n 30 /tmp/mcp.log'
+   docker compose logs -f
    ```
 
-   Look for `Business service executed` and no `Discovery failed` / `401 Unauthorized` lines.
+   Look for `Supervising mcp-server` in `ai-hub-mcp-launcher` service.
 
 8. **Connect your AI coding assistant to the MCP endpoint**
 
@@ -127,17 +126,21 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    - Reload VS Code window (Ctrl+Shift+P → "Developer: Reload Window")
 
 6. **Test it**
-   - **6.1 Invoke a tool** — in your AI assistant's chat:
+    - **6.1 Invoke a tool** — in your AI assistant's chat:
 
-     ```
-     Use the PayLookup tool with OrderId 88201 and CustomerId C-1
-     ```
-   - **6.2 Verify in IRIS Management Portal**
-     - Access the Message Viewer at [http://localhost:52773/csp/irisapp/EnsPortal.MessageViewer.zen?$NAMESPACE=IRISAPP&](http://localhost:52773/csp/irisapp/EnsPortal.MessageViewer.zen?$NAMESPACE=IRISAPP&)
-     - Login: **_SYSTEM** / **SYS** — namespace: **IRISAPP**
-     - Filter messages by today → see the `Ens.MessageHeader` entry with the BS→BP→BO chain
-     - Click **Visual Trace** on that message to see the full flow: `Demo.PayLookupService` → `Demo.AuditProcess` → `Demo.AuditOperation`
-   - **6.3 Verify audit store** (SQL):
+      ```
+      Use the PayLookup tool with OrderId 88201 and CustomerId C-1
+      ```
+
+      ![PayLookup via Opencode](docs/articles/img/article-1-step-03-opencode-paylookup.png)
+    - **6.2 Verify in IRIS Management Portal**
+      - Access the Message Viewer at [http://localhost:52773/csp/irisapp/EnsPortal.MessageViewer.zen?$NAMESPACE=IRISAPP&](http://localhost:52773/csp/irisapp/EnsPortal.MessageViewer.zen?$NAMESPACE=IRISAPP&)
+      - Login: **_SYSTEM** / **SYS** — namespace: **IRISAPP**
+      - Filter messages by today → see the `Ens.MessageHeader` entry with the BS→BP→BO chain
+      - Click **Visual Trace** on that message to see the full flow: `Demo.PayLookupService` → `Demo.AuditProcess` → `Demo.AuditOperation`
+
+      ![PayLookup in IRIS Interoperability](docs/articles/img/article-1-step-03-opencode-paylookup-msg.png)
+    - **6.3 Verify audit store** (SQL):
      - Access the SQL portal at [http://localhost:52773/csp/sys/exp/%25CSP.UI.Portal.SQL.Home.zen?$NAMESPACE=IRISAPP](http://localhost:52773/csp/sys/exp/%25CSP.UI.Portal.SQL.Home.zen?$NAMESPACE=IRISAPP)
      ```sql
      SELECT * FROM br_musketeers_InteropMCP.Invocations ORDER BY InvocationId DESC
@@ -155,6 +158,8 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
      ```
 
 **MCP endpoint:** `http://localhost:8080/mcp`
+
+For more detailed information and additional examples, see [InteropMCP: Turn your InterSystems IRIS productions into MCP tools for AI agents](docs/articles/article-1-idea-ai-hub-tutorial.md).
 
 ## Troubleshooting / Rebuild from scratch
 
