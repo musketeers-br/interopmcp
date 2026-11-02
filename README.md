@@ -74,11 +74,10 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
 7. **Wait for health and verify**
 
    ```bash
-   sleep 30
-   docker exec ai-hub-dev-template-iris-1 sh -c 'tail -n 30 /tmp/mcp.log'
+   docker compose logs -f
    ```
 
-   Look for `Business service executed` and no `Discovery failed` / `401 Unauthorized` lines.
+   Look for `Supervising mcp-server` in `ai-hub-mcp-launcher` service.
 
 8. **Connect your AI coding assistant to the MCP endpoint**
 
