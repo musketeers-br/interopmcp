@@ -358,7 +358,7 @@ After approval the status should be `"completed"` and the `text` field will cont
 
 ![Approve critical call — operator1 approves the pending approval](img/article-1-step-07-approve.png)
 
-### Step 8: Approve the critical call (human operator through IRIS Workflow)
+### Step 8: Configure agent to auto-create workflow tasks for restricted CNPJ risk checks
 
 In the previous step, a workflow task for approvement was issued automatically by a critical tool in InteropMCP. Now, let's show the decision on restrict access to non critical tools could be delegated to the agent, using the CreateWorkflowTask tool.
 
