@@ -3,9 +3,13 @@
 Runbook: symptom → diagnosis → fix, plus the ObjectScript/UDL dialect rules of this build
 (IRIS 2026.3 AI) and ready-to-run diagnostic queries.
 
-## 1. Symptom runbook
+## 0. Verificação prévia (sempre executar primeiro)
 
-### `tools/list` returns nothing / misses tools
+| Item | Como verificar |
+|------|---------------|
+| `INTEROPMCP_BASIC` definida? | `printenv INTEROPMCP_BASIC` deve imprimir `Basic <base64>`. Se vazio ou ausente, edite `~/.bashrc` e reinicie o terminal. |
+| Caminho do `.env` correto? | O bloco condicional do `.bashrc` aponta para `/home/jose/dev/interopmcp/.env` — verifique se esse caminho existe e contém `INTEROPMCP_DEMO_PASSWORD=change-me`. |
+| Rebuild corrige? | Não. `~/.bashrc` e `.env` ficam fora da imagem Docker. Rebuild NÃO resolve variável faltando no shell do host. |
 
 | Check | How |
 |-------|-----|

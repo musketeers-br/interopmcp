@@ -4,7 +4,7 @@
 /// JSON-RPC traffic into this class, which resolves the toolset declared in
 /// the SPECIFICATION parameter (br.musketeers.InteropMCP.ToolSet) and exposes its included
 /// tools to connected agents.
-/// Provisioned by br.musketeers.InteropMCP.Setup (dev or prod authentication posture);
+/// Provisioned by br.musketeers.InteropMCP.Setup (secured authentication posture);
 /// this class holds no business logic of its own.
 Class br.musketeers.InteropMCP.MCPService Extends %AI.MCP.Service
 {
@@ -104,16 +104,12 @@ ClassMethod AccessCheck(Output pAuthorized As %Boolean = 0) As %Status
 /// MCP Server CSP application is provisioned with Password authentication, so
 /// IRIS itself rejects a missing or wrong credential before the request ever
 /// reaches this class (and writes the platform %LOGIN/LoginFailure record).
-/// This hook therefore verifies that the forwarded Basic credential is
-/// present and well formed, and that the identity IRIS established for the
-/// request is the one the credential names. It only falls back to
-/// $SYSTEM.Security.Login when the caller identity was not established by the
-/// CSP dispatcher, which keeps the credential check on the same path for
-/// non-CSP invocations. Demo mode is explicitly unauthenticated and skips the
-/// check entirely.
+/// This hook verifies that the forwarded Basic credential is present and well
+/// formed, and that the identity IRIS established for the request is the one
+/// the credential names. It only falls back to $SYSTEM.Security.Login when the
+/// caller identity was not established by the CSP dispatcher.
 ClassMethod OnAuthenticate(authType As %String, auth As %String, headers As %DynamicObject = "") As %Status
 {
-    If ##class(br.musketeers.InteropMCP.Setup).GetMode() = "demo" Quit $$$OK
     Set scheme = $ZConvert(authType, "L")
     If scheme = "" {
         Do ..RecordAccessDecision("authentication-denied", "missing-credential")

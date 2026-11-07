@@ -1,0 +1,45 @@
+# Especificação: Integração Workflow IRIS + mecanismo de aprovação (InteropMCP)
+
+## Referência
+
+Workflow do IRIS Interoperability: https://docs.intersystems.com/irislatest/csp/docbook/DocBook.UI.Page.cls?KEY=EGWF_overview
+
+## Princípio de projeto
+
+O mecanismo de aprovação existente em `br.musketeers.InteropMCP.Approvals` permanece como fonte única da decisão de liberação de invocações críticas. O Workflow nativo do IRIS (`Ens.Workflow.*`) funciona apenas como camada de interface de usuário e atribuição de tarefas para o operador, sem acoplamento forte com o gate de aprovação. Qualquer um dos dois caminhos (terminal via `Approvals.Approve`/`Reject` ou Management Portal via Workflow) converge na mesma decisão persistida em `Approvals`.
+
+## Modelo de dados
+
+A classe `br.musketeers.InteropMCP.Approvals` recebe a propriedade `TaskId As %String(MAXLEN = 64)` com índice único `TaskIdIdx On TaskId [ Unique ]`, armazenada no global `^InteropMCP.ApprovalsD`. Essa propriedade vincula um `ApprovalId` a uma tarefa de Workflow existente, permitindo que o operador veja no Management Portal a tarefa correspondente a cada aprovação pendente, sem que o gate dependa do Workflow para funcionar.
+
+## Componente de ponte
+
+Uma nova classe `br.musketeers.InteropMCP.WorkflowBridge` expõe as seguintes operações:
+
+- Criação de tarefa: recebe um `ApprovalId` pendente e cria uma `Ens.Workflow.Task` vinculada a essa aprovação, preenchendo `TaskId` na linha de `Approvals`. A criação de tarefa nunca bloqueia o fluxo de aprovação via terminal; se falhar, registra aviso no log e continua.
+- Listagem de tarefas pendentes: espelha `Approvals.ListPending` consultando tarefas de Workflow ainda não decididas.
+- Conclusão de tarefa: recebe o identificador da tarefa, a decisão (`approved` ou `rejected`), o operador e um motivo/comentário. Completa a tarefa de Workflow com o respectivo status e propaga a decisão para `Approvals.Approve` ou `Approvals.Reject`. É idempotente: uma tarefa já concluída não dispara novo replay da invocação.
+
+## Controle de concorrência
+
+Os métodos `Approvals.Approve` e `Approvals.Reject` operam sob lock exclusivo no registro de aprovação (por exemplo, abertura do objeto com lock ou `$$$LOCK`/`$$$UNLOCK` sobre `^InteropMCP.ApprovalsD`). Dentro da região crítica, verificam se `Decision = "pending"`. Se o registro já foi decidido por outra chamada concorrente, a operação falha com erro explícito informando que a aprovação já foi decidida (incluindo o identificador do operador que decidiu). Somente quando ainda está pendente a operação grava a decisão, `DecidedAt`, `Approver` e `Reason`, completa a tarefa de Workflow vinculada e libera o lock. O primeiro a decidir vence; o perdedor da condição de corrida recebe o erro adequado em vez de sobrescrever silenciosamente.
+
+## Integração no fluxo de gate
+
+No caminho `critical` de `br.musketeers.InteropMCP.Guardrails.Check`, após criar o registro `Approvals.CreateRequest`, o componente chama a ponte para criar a tarefa de Workflow associada. A decisão tomada via `Approvals.Approve` ou `Reject` (seja pelo terminal, seja pelo portal) completa a tarefa de Workflow vinculada, mantendo consistência entre os dois canais.
+
+## Segurança e provisionamento
+
+O provisionamento do gateway cria ou reconcilia um usuário operador de workflow com os papéis necessários para acesso às tarefas pelo Management Portal (ex.: papéis `%Workflow_*` ou um papel customizado equivalente). Os privilégios de leitura SQL sobre `Invocations` e `Approvals` continuam sendo gerenciados conforme já existe na configuração de segurança do gateway.
+
+## Comportamento esperado
+
+Um cliente MCP que chama uma ferramenta `critical` recebe status `held` com `invocationId` e `approvalId`. A operação fica aguardando decisão humana. Um operador pode decidir pelo terminal (`Approvals.Approve`/`Reject`) ou concluir a tarefa correspondente no Management Portal via Workflow. Ao aprovar, a invocação original é replayada com os mesmos parâmetros e identidade do agente, passando para `completed` e visível via `GetInvocationStatus`. Ao rejeitar, a invocação é marcada como `rejected` com o motivo informado e nunca chega a executar o Business Service. Não há expiração automática de itens pendentes; eles permanecem até serem decididos ou cancelados explicitamente.
+
+## Observabilidade e auditoria
+
+Toda decisão (aprovação ou rejeição) é gravada no log do gateway (`br.musketeers.InteropMCP.Log`, componente `approval`) e na tabela `br_musketeers_InteropMCP.Approvals`, com aprovador, timestamp e motivo. O status da invocação pode ser consultado via `GetInvocationStatus` e por SQL sobre as tabelas do gateway.
+
+## Escopo de testes e documentação
+
+Devem existir testes que cubram criação de tarefa de Workflow vinculada a aprovação pendente, conclusão aprovada/rejeitada via ponte, verificação da decisão em `Approvals` e status da `Invocation`, cenário de condição de corrida (duas decisões concorrentes: uma vence, a outra recebe erro), e teste E2E via cliente MCP (`RiskCheck` → `held` → decisão via Workflow → `GetInvocationStatus` mostra `completed`). A documentação de operações, o tutorial do artigo e a arquitetura devem registrar a alternativa de aprovação via Management Portal/Workflow, e um item deve ser adicionado ao `docs/TODO.md`.

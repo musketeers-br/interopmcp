@@ -20,6 +20,7 @@ XData Definition [ MimeType = text/xml ]
   <Description>IRIS MCP Gateway tool catalog</Description>
   <Include Class="br.musketeers.InteropMCP.GeneratedTools"></Include>
   <Include Class="br.musketeers.InteropMCP.InvocationStatusTools"></Include>
+  <Include Class="br.musketeers.InteropMCP.MetaTools"></Include>
 </ToolSet>
 }
 
@@ -35,6 +36,10 @@ Method %Invoke(toolname As %String, args As %DynamicObject) As %Any
     Set tool = $ZCONVERT(toolname, "U")
     If tool = "GETINVOCATIONSTATUS" {
         Set instance = ##class(br.musketeers.InteropMCP.InvocationStatusTools).%New()
+        Quit instance.%Invoke(toolname, args)
+    }
+    If tool = "CREATEWORKFLOWTASK" {
+        Set instance = ##class(br.musketeers.InteropMCP.MetaTools).%New()
         Quit instance.%Invoke(toolname, args)
     }
     Set instance = ##class(br.musketeers.InteropMCP.GeneratedTools).%New()

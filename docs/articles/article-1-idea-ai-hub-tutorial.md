@@ -24,6 +24,8 @@ InteropMCP flips this model. Instead of building new integrations, it **exposes 
 
 Removing the gateway changes nothing about the production itself (zero-regression requirement).
 
+For critical tools, InteropMCP adds a non-invasive human-in-the-loop layer. When a tool is classified as `critical` by the guardrail, the invocation is held and an approval record is created in `br.musketeers.InteropMCP.Approvals`. `br.musketeers.InteropMCP.WorkflowBridge.CreateTask` then creates a native IRIS Interoperability Workflow `TaskRequest/TaskResponse` linked to that approval and distributes it to the role `Operators`. The task appears in the IRIS DeepSee User Portal Workflow inbox at `http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen`, providing a familiar UI for operators without modifying the production.
+
 ## 3. How AI HUB helps
 
 InteropMCP is built on the **InterSystems AI HUB** framework in ObjectScript. The AI HUB provides the pieces that would otherwise be complex to build from scratch:
@@ -43,27 +45,14 @@ All steps below were validated against a running InteropMCP container (`ai-hub-d
 - AI agent: Opencode, Claude Code, GitHub Copilot or other MCP-compatible client with a model that supports tool calling/MCP. In the tests for this article the models "DeepSeek 4.1 Flash", "MiniMax-M3.1-Flash" and "Nemotron 3.5 Lightning 30B A3B" were used.
 - Note: due to the non-deterministic nature of language models, results may differ between runs.
 
-### Step 0: Build the Basic auth header
+### Step 0: Setup
 
-The MCP endpoint requires an `Authorization: Basic <base64>` header.
+To run the demo steps below, you need the InteropMCP container up and healthy.
+See the **InteropMCP** page on InterSystems Open Exchange for the quick start:
 
-```bash
-export INTEROPMCP_BASIC="Basic $(printf 'mcp_demo:change-me' | base64 -w0)"
-echo $INTEROPMCP_BASIC
-# Result: Basic bWNwX2RlbW86Y2hhbmdlLW1l
-```
+https://github.com/musketeers-br/interopmcp#quick-start
 
-Now, build the image and start the container:
-
-```bash
-docker compose down -v
-docker compose build --no-cache
-docker compose up -d
-```
-
-Wait ~30s for health and verify with `docker exec ai-hub-dev-template-iris-1 sh -c 'tail -n 30 /tmp/mcp.log'`.
-
-*For more information, see the project on InterSystems OpenExchange.*
+Once the container is running and healthy, proceed to Step 1.
 
 ### Step 1: Configure Opencode
 
@@ -78,7 +67,9 @@ The repo already includes `opencode.json` with InteropMCP configured as remote:
 }
 ```
 
-Make sure `INTEROPMCP_BASIC` is exported in the shell that starts Opencode, e.g. in `~/.bashrc`:
+Make sure:
+- `WG_USER=_SYSTEM` and `WG_PASS=SYS` in your .env file
+- `INTEROPMCP_BASIC` is exported in the shell that starts Opencode, e.g. in `~/.bashrc`:
 ```bash
 export INTEROPMCP_BASIC="Basic $(printf 'mcp_demo:change-me' | base64 -w0)"
 ```
@@ -98,25 +89,33 @@ Then enter the commands `/mcps` and `/status`. You should see outputs like `iris
 
 In Opencode, the tools are discovered automatically. Ask in chat:
 
-`List the available InteropMCP tools in table with tool name and thier parameters`
+```
+List the available InteropMCP tools in table with tool name and thier parameters
+```
 
 Expected result (5 tools from the demo production):
 
-| Tool | Parameters |
-|------|------------|
-| `PayLookup` | `OrderId` (required), `CustomerId` |
-| `CustomerUpdate` | `CustomerId`, `NewAddress` |
-| `BatchRun` | `ReportSet` (required) |
-| `RiskCheck` | `Cnpj` (required), `Scope` |
-| `GetInvocationStatus` | `invocationId` (required) |
+| Tool | Parameters | Classification |
+|------|------------|----------------|
+| `PayLookup` | `OrderId` (required), `CustomerId` | readonly |
+| `CustomerUpdate` | `CustomerId`, `NewAddress` | write |
+| `BatchRun` | `ReportSet` (required) | readonly |
+| `RiskCheck` | `Cnpj` (required), `Scope` | write |
+| `AccountBlock` | `CustomerId` (required), `BlockType`, `Reason` | critical |
+| `GetInvocationStatus` | `invocationId` (required) | — |
+| `CreateWorkflowTask` | `pParams` (required) | — |
 
 > **Note on `Cnpj`**: `Cnpj` is the Brazilian company identification number, equivalent to the Employer Identification Number – EIN – in the US. In the demo environment use a valid example CNPJ; for a US context think of EIN as the analogous parameter.
+
+> **Note on reproducibility**: As AI is non-deterministic, your results may be sintatically different but they should be logically equivalents.
 
 ![Tools list in Opencode](img/article-1-step-02-opencode-tools.png)
 
 ### Step 3: Call a readonly tool — PayLookup with Opencode
 
-`Use the PayLookup tool with OrderId 88201 and CustomerId C-1`
+```
+Use the PayLookup tool with OrderId 88201 and CustomerId C-1
+```
 
 Expected: `isError:false`, content type text with a JSON object:
 ```json
@@ -130,13 +129,15 @@ The Business Service executes immediately and the invocation is recorded in the 
 
 ![PayLookup via Opencode](img/article-1-step-03-opencode-paylookup.png)
 
-You can check the interoperability invockation in the Interoperability Portal:
+You can check the interoperability invockation in the [Interoperability Portal](http://localhost:52773/ui/interop/interop-editor/index.html?%24NAMESPACE=IRISAPP&%24PRODUCTION=br.musketeers.InteropMCP.Demo.Production):
 
 ![PayLookup in IRIS Interoperability](img/article-1-step-03-opencode-paylookup-msg.png)
 
 ### Step 4: Call a write tool — CustomerUpdate with Opencode
 
-`Use the CustomerUpdate tool with CustomerId 1 and NewAddress "Av. Paulista, 1000 - São Paulo/SP"`
+```
+Use the CustomerUpdate tool with CustomerId 1 and NewAddress "Av. Paulista, 1000 - São Paulo/SP"
+```
 
 Expected: `isError:false`, content type text with a JSON object:
 ```json
@@ -152,9 +153,11 @@ The write operation is executed and logged by the guardrail.
 
 ![CustomerUpdate in IRIS](img/article-1-step-04-opencode-customerupdate-msg.png)
 
-### Step 5: Call a critical tool — RiskCheck with Opencode
+### Step 5: Call a critical tool — AccountBlock with Opencode
 
-`Use the RiskCheck tool with Cnpj 12.345.678/0001-90 and Scope full`
+```
+Use the AccountBlock tool with CustomerId 1, BlockType "permanent", and Reason "Restricted CNPJ detected"
+```
 
 Expected: `isError:false`, content type text with a JSON object:
 
@@ -169,37 +172,59 @@ Expected: `isError:false`, content type text with a JSON object:
 
 The call returns a held status and does **not** execute the Business Service — it is parked awaiting human approval. Capture `invocationId` and `approvalId` for the next steps.
 
-![RiskCheck via Opencode – pending approval](img/article-1-step-05-opencode-riskcheck.png)
+![AccountBlock via Opencode – pending approval](img/article-1-step-05-opencode-accountblock.png)
 
-![RiskCheck in IRIS](img/article-1-step-05-opencode-riskcheck-msg.png)
+If you are logged with _SYSTEM user, you should be able to see a workflow task in the [User Portal](http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen):
+
+![AccountBlock via Opencode – pending approval in User Portal](img/article-1-step-05-opencode-accountblock-user-portal.png)
 
 ### Step 6: Check invocation status with Opencode
 
-`Use the GetInvocationStatus tool with invocationId "<INVOCATION_ID>"`
+```
+Use the GetInvocationStatus tool with invocationId "<INVOCATION_ID>"
+```
 
 Replace <INVOCATION_ID> with the GUID returned in Step 5. A held critical call returns:
 
 ```json
 {
   "columns": [...],
-  "rows": [{"InvocationId":"<INVOCATION_ID>","Status":"pending-approval","Result":"","AgentIdentity":"local-dev"}],
-  "text": "Invocation <INVOCATION_ID> – Status: pending-approval | Agent: local-dev | Awaiting human approval"
+  "rows": [{"InvocationId":"<INVOCATION_ID>","Status":"pending-approval","Result":"","AgentIdentity":"mcp_demo"}],
+  "text": "Invocation <INVOCATION_ID> – Status: pending-approval | Agent: mcp_demo | Awaiting human approval"
 }
 ```
-
-After approval, the same call will show `"Status":"completed"` and include the result in the `text` summary.
 
 ![GetInvocationStatus via Opencode](img/article-1-step-06-opencode-status.png)
 
 This tool has no IRIS Interoperability invocation, it's a InteropMCP internal call. So there is no Interoperability trace to show.
 
-### Step 7: Approve the critical call (human operator)
+After approval, the same call will show `"Status":"completed"` and include the result in the `text` summary.
 
-An operator reviews pending approvals and decides:
+### Step 7: Approve the critical call (human operator through IRIS Workflow)
+
+An operator reviews pending approvals and decides.
+
+**Step 7a. View the task in the IRIS Workflow User Portal**
+
+The same approval is surfaced as a native Workflow task. Open the DeepSee User Portal Workflow:
+
+```
+http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen
+```
+
+Login with `_SYSTEM` / `SYS`. In the inbox for role `Operators`, the task with Subject `Approval: <ApprovalId>` is listed. The portal shows the task details and the **Approve** / **Reject** buttons for the operator.
+
+![Workflow inbox in DeepSee User Portal](img/article-1-step-07-workflow-portal-inbox.png)
+
+**Step 7b. Approve or reject it**
+
+Open IRIS terminal in another terminal:
 
 ```bash
 docker exec -it ai-hub-dev-template-iris-1 iris session iris -U IRISAPP
 ```
+
+Then, execute the script below:
 
 ```objectscript
 // List pending approvals
@@ -219,13 +244,69 @@ Do ##class(br.musketeers.InteropMCP.Approvals).Approve(ApprovalId, "operator1")
 Halt
 ```
 
+Now, you had approved the account blocking request, you should be able to see it in the Production:
+
+![Account Block in IRIS](img/article-1-step-05-opencode-accountblock-msg.png)
+
 Every decision is written to the gateway audit log (`br.musketeers.InteropMCP.Log`) and to the `br_musketeers_InteropMCP.Approvals` table.
 
-**7b. Verify execution after approval**
+**Step 7c. Verify execution after approval**
 
-`Use the GetInvocationStatus tool with invocationId "<INVOCATION_ID>"` again. After approval the status should be `"completed"` and the `text` field will contain a human-readable summary with the result.
+```
+Use the GetInvocationStatus tool with invocationId "<INVOCATION_ID>"
+```
+
+After approval the status should be `"completed"` and the `text` field will contain a human-readable summary with the result.
 
 ![Approve critical call — operator1 approves the pending approval](img/article-1-step-07-approve.png)
+
+### Step 8: Approve the critical call (human operator through IRIS Workflow)
+
+In the previous step, a workflow task for approvement was issued automatically by a critical tool in InteropMCP. Now, let's show the decision on restrict access to non critical tools could be delegated to the agent, using the CreateWorkflowTask tool.
+
+In this example we'll use a hipothetical restrict CNPJ list store into a file to instruct an opencode agent to check it before calling any Risk Check analysis. In the `opencode.json` file, create a new key like this (note: this is already defined in the demo app repository)
+
+```json
+  "agent": {
+    "build": {
+      "prompt": "You are operating the InteropMCP gateway. Before calling the RiskCheck tool for any CNPJ:\n\n1. Read config/restricted_cnpjs.txt to get the current restricted CNPJ list.\n2. If the CNPJ is in the restricted list:\n   - Call MetaTools.CreateWorkflowTask(toolName=\"RiskCheck\", pParams='{\"Cnpj\": \"<cnpj>\"}', pReason=\"CNPJ is restricted - requires human approval before risk assessment\").\n   - Return _status: \"held\" pending human approval.\n3. If the CNPJ is NOT restricted:\n   - Call RiskCheck(Cnpj=\"<cnpj>\") directly.\n   - Return the result.\n\nNever hardcode CNPJ values — always read from config/restricted_cnpjs.txt."
+    }
+  },
+```
+
+This list is just a text file, like this:
+
+```plain
+12.345.678/0001-90
+98.765.432/0001-10
+11.222.333/0001-44
+```
+
+Now, issue a prompt like this, with a non-restricted code:
+
+```
+Check the risk for Cnpj 99.999.999/0001-90 with full scope
+```
+
+![Risk check request in opencode](img/article-1-step-08-non-restricted-riskcheck.png)
+
+As this code isn't in the restricted list, you should be able to see a corresponding request in the Production:
+
+![Risk check directly issued a Production message for a non-restrictede Cnpj](img/article-1-step-08-non-restricted-riskcheck-msg.png)
+
+Now, issue a prompt using a restricted code:
+
+```
+Check the risk for Cnpj 12.345.678/0001-90 with full scope
+```
+
+![Risk check request for restricted Cnpj in opencode](img/article-1-step-08-restricted-riskcheck.png)
+
+Now, you have a new workflow task requesting an approval to invoke the Production Business Service:
+
+![Workflow task for pending-approval Risk Check for a restricted Cnpj](img/article-1-step-08-workflow-task.png)
+
+You can follow the same steps shown in steps 7-* to approve it or reject it. If you approve it, you should see the correponding message process in the Production.
 
 ## 5. Hypothetical example: retail payment & address flow
 
@@ -235,14 +316,16 @@ Imagine a retail chain running the demo production `br.musketeers.InteropMCP.Dem
 |------|-------|------|
 | `PayLookupBS` | `...Demo.PayLookupBS` | Check payment status (`readonly`) |
 | `CustomerUpdateBS` | `...Demo.CustomerUpdateBS` | Update delivery address (`write`) |
-| `RiskCheckBS` | `...Demo.RiskCheckBS` | Critical risk assessment (`critical`) |
+| `RiskCheckBS` | `...Demo.RiskCheckBS` | Risk assessment (`write`) |
+| `AccountBlockBS` | `...Demo.AccountBlockBS` | Account inactivation (`critical`) |
 | `AuditProcess` / `AuditOperation` | BP / BO | Native production trace |
 
 **Scenario:** A finance assistant answers whether invoice 88201 was paid and, if asked, updates the customer's delivery address.
 
 1. Agent: *"Has order 88201 for customer C-1 been paid?"* → calls `mcp_interopmcp_PayLookup` → production returns `Status: Compensated | Paid: Yes | Amount: 150.75`.
 2. Agent: *"Update customer 1's address to Av. Paulista, 1000."* → calls `mcp_interopmcp_CustomerUpdate` → production writes the update, gateway logs the caller identity (`mcp_demo`) and parameters.
-3. Agent: *"Run a risk check on CNPJ 12.345.678/0001-90."* → calls `mcp_interopmcp_RiskCheck` → gateway returns `_status: held` with `invocationId` and `approvalId`. The call is not executed; it is parked as `pending-approval`. A human operator reviews and calls `Approvals.Approve(approvalId, "operator1")`. The gateway replays the original call with the same `invocationId` and updates status to `completed`.
+3. Agent: *"Run a risk check on CNPJ 12.345.678/0001-90."* → calls `mcp_interopmcp_RiskCheck` → gateway returns `_status: ok` with result `Status: Approved | Result: Clear`. Risk assessment executes immediately (classified as `write`).
+4. Agent: *"Block account for customer 1 — restricted CNPJ detected."* → calls `mcp_interopmcp_AccountBlock` → gateway returns `_status: held` with `invocationId` and `approvalId`. The call is not executed; it is parked as `pending-approval`. A human operator reviews and calls `Approvals.Approve(approvalId, "operator1")` via terminal. The gateway replays the original call with the same `invocationId` and updates status to `completed`.
 
 All three calls are visible in the Message Viewer and Visual Trace as genuine BS → BP → BO message flows — produced by the production, not by the gateway.
 

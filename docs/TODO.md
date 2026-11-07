@@ -1,1 +1,2 @@
 - Alterar o comportamento de ter que alterar as classes originais da produção inserindo parametros. Pensar num meio menos invasivo. Talvez uma classe que herde de alguma classe de registro onde essa configuração e exposição ao MCP é declarada.
+- Integrar IRIS Interoperability Workflow como camada de UI/atribuição para o mecanismo de aprovação customizado (classe WorkflowBridge, propriedade TaskId em Approvals, lock exclusivo em Approve/Reject). Ver specs/003-workflow-approval-bridge/.
