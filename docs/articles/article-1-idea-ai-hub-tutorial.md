@@ -6,6 +6,7 @@
 - No integration code needs to be rewritten: the gateway invokes your existing Business Service through `CreateBusinessService` + `ProcessInput` and preserves native traceability (`Ens.MessageHeader`, Visual Trace).
 - Built on the InterSystems **AI HUB** framework (ObjectScript), deployed as a containerized workload.
 - Two separate audit planes: production-native (messages produced by the BS → BP → BO flow) and gateway-side (tool-call lifecycle, guardrail decisions, human approvals).
+- **Governance:** per-tool security classification (`readonly` / `write` / `critical`) and human-in-the-loop approval ensure AI agents operate within declared policies, while humans retain final authority over state-changing actions.
 
 ---
 
