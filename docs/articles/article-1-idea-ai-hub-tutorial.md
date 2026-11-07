@@ -24,6 +24,57 @@ InteropMCP flips this model. Instead of building new integrations, it **exposes 
 
 Removing the gateway changes nothing about the production itself (zero-regression requirement).
 
+<details>
+<summary>🗺️ InteropMCP Architecture Diagram</summary>
+
+The diagram uses the **demo production** (`br.musketeers.InteropMCP.Demo.Production`) as a concrete example to aid comprehension. This demo production exposes five Business Services — `PayLookupBS`, `CustomerUpdateBS`, `RiskCheckBS`, `AccountBlockBS`, and `BatchRunBS` — each annotated for AI exposure via class parameters (`AIGATEWAY`, `AIGATEWAYDESC`, `REQUESTCLASS`), plus an `AuditProcess` Business Process and `AuditOperation` Business Operation that provide native traceability (`Ens.MessageHeader`, Visual Trace).
+
+InteropMCP itself is **production-agnostic**: it is not tied to the demo and works with any InterSystems IRIS Interoperability Production whose Business Services carry the same annotations. The demo is used only to make the flow easier to understand; you can replace it with your own production and re-run `br.musketeers.InteropMCP.Registry.BuildCatalog` to generate the corresponding tools.
+
+```mermaid
+flowchart TD
+    subgraph Agent["AI Agent (MCP Client)"]
+        A[AI Agent · knows the MCP · uses its tools]
+    end
+
+    subgraph MCP["MCP Endpoint — AI HUB"]
+        MS[br.musketeers.InteropMCP.MCPService]
+        MS_Inherit[extends %AI.MCP Service]
+        MS --> MS_Inherit
+    end
+
+    subgraph Registry["Introspection — Registry.BuildCatalog"]
+        R[Reads BS annotations · builds catalog]
+    end
+
+    subgraph Production["IRIS Interoperability Production"]
+        P[br.musketeers.InteropMCP.Demo.Production]
+    end
+
+    subgraph BSTree["Business Services"]
+        BS1[PayLookupBS · readonly]
+        BS_Dots[...]
+        BS5[BatchRunBS · readonly]
+    end
+
+    subgraph Tools["Generated Tools — one per BS"]
+        GT[br.musketeers.InteropMCP.GeneratedTools]
+        GT -->|extends| AITool[%AI.Tool]
+        GT -->|contains| T1[PayLookup]
+        GT -->|contains| T_Dots[...]
+        GT -->|contains| T5[BatchRun]
+    end
+
+    %% Architecture flow
+    P --> BSTree
+    BSTree --> R
+    R --> MS
+    R --> GT
+    MS --> A
+    A --> GT
+```
+</details>
+
 For critical tools, InteropMCP adds a non-invasive human-in-the-loop layer. When a tool is classified as `critical` by the guardrail, the invocation is held and an approval record is created in `br.musketeers.InteropMCP.Approvals`. `br.musketeers.InteropMCP.WorkflowBridge.CreateTask` then creates a native IRIS Interoperability Workflow `TaskRequest/TaskResponse` linked to that approval and distributes it to the role `Operators`. The task appears in the IRIS DeepSee User Portal Workflow inbox at `http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen`, providing a familiar UI for operators without modifying the production.
 
 ## 3. How AI HUB helps
