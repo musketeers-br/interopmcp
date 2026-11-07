@@ -46,22 +46,22 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    Otherwise, edit `Dockerfile` and change the `ARG IMAGE=...` line to match your loaded image tag.
 
 5. **Prepare credentials**
-   1. Crie `.env` a partir de `.env.example` e corrija a senha da bridge:
+   1. Create `.env` from `.env.example` and fix the bridge password:
       ```bash
       cp .env.example .env && sed -i 's/^WG_PASS=change-me/WG_PASS=SYS/' .env
       ```
-      > O `WG_PASS` deve ser `SYS` (senha padrão do IRIS) para a bridge `iris-mcp-server` se conectar ao nó. Sem isso o catálogo fica vazio (`names=[]`) e chamadas de ferramentas falham com `I/O error: early eof`.
+      > `WG_PASS` must be `SYS` (IRIS default password) for the `iris-mcp-server` bridge to connect to the node. Without this the catalog is empty (`names=[]`) and tool calls fail with `I/O error: early eof`.
 
-   2. Exporte a credencial de autenticação do cliente para o opencode e outros clientes MCP:
+   2. Export the client authentication credential for opencode and other MCP clients:
       ```bash
       export INTEROPMCP_BASIC="Basic $(printf 'mcp_demo:change-me' | base64 -w0)"
       ```
-      > Adicione essa linha ao `~/.bashrc` para que o opencode (e outros clientes MCP) enviem o header `Authorization` corretamente. Essa variável é **client-side** — não é lida pelo container. Para persistir entre rebuilds, adicione ao `~/.bashrc` e abra um novo terminal.
+      > Add this line to `~/.bashrc` so that opencode (and other MCP clients) send the `Authorization` header correctly. This variable is **client-side** — it is not read by the container. To persist across rebuilds, add to `~/.bashrc` and open a new terminal.
 
-   > `opencode.json` lê `{env:INTEROPMCP_BASIC}` do ambiente do processo no startup.
-   > A transient `export` é perdida na reinicialização, e o rebuild do container não atualiza
-   > `~/.bashrc`/`.env` (eles ficam fora da imagem). Persista em `~/.bashrc`, então abra um
-   > novo terminal.
+   > `opencode.json` reads `{env:INTEROPMCP_BASIC}` from the process environment at startup.
+   > A transient `export` is lost on restart, and container rebuild does not update
+   > `~/.bashrc`/`.env` (they are outside the image). Persist in `~/.bashrc`, then open a
+   > new terminal.
 
    6. **Start the container**
 
@@ -165,15 +165,15 @@ For more detailed information and additional examples, see [InteropMCP: Turn you
 
 ## Troubleshooting / Rebuild from scratch
 
-| Sintoma | Causa provável | Solução |
+| Symptom | Probable cause | Solution |
 |---------|---------------|---------|
-| `"InteropMCP Failed to get tools"` | `INTEROPMCP_BASIC` ausente/obsoleto no ambiente do opencode (`~/.bashrc`) | `printenv INTEROPMCP_BASIC`; corrija o bloco no `~/.bashrc` (derive do `.env`), abra um novo terminal e reinicie o opencode. Rebuild só como fallback |
-| `"InteropMCP Failed to get tools"` com `INTEROPMCP_BASIC` correto | `iris-mcp-server` expõe `iris_status` com `inputSchema` vazio (`{}`), schema inválido para clientes MCP 2025-11-25 (opencode) | Suba a bridge com `run --status-tool false`; o `docker-compose.yml` já faz isso no start e no supervisor |
-| Bridge descobre 0 ferramentas | `config_http.toml` sem `WG_USER`/`WG_PASS` | Crie `.env` a partir de `.env.example` e exporte `INTEROPMCP_BASIC` |
-| `401` na descoberta | Credencial da bridge ausente ou inválida | Verifique `.env` e `INTEROPMCP_BASIC="Basic $(printf 'mcp_demo:change-me' | base64 -w0)"` |
-| `403` na execução da ferramenta | Usuário não é membro de `InteropMCPRoles` | Use `mcp_demo` (entitled) em vez de `mcp_demo2` (unentitled) |
-| Bridge não sobe | Supervisor não reinicia sozinho | `docker exec -d <container> sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run --status-tool false > /tmp/mcp.log 2>&1'` |
-| Catálogo desatualizado após rebuild | Bind-mount sobrescreve `GeneratedTools.cls` | O `BuildCatalog` roda durante o `docker build`; se necessário, re-rProvisione: `docker exec <container> iris session IRIS -U IRISAPP < bootstrap-gateway.script` |
+| `"InteropMCP Failed to get tools"` | `INTEROPMCP_BASIC` missing/stale in opencode environment (`~/.bashrc`) | `printenv INTEROPMCP_BASIC`; fix the block in `~/.bashrc` (derive from `.env`), open a new terminal and restart opencode. Rebuild only as fallback |
+| `"InteropMCP Failed to get tools"` with `INTEROPMCP_BASIC` correct | `iris-mcp-server` exposes `iris_status` with empty `inputSchema` (`{}`), invalid schema for MCP 2025-11-25 clients (opencode) | Bring up the bridge with `run --status-tool false`; `docker-compose.yml` already does this on start and supervisor |
+| Bridge discovers 0 tools | `config_http.toml` without `WG_USER`/`WG_PASS` | Create `.env` from `.env.example` and export `INTEROPMCP_BASIC` |
+| `401` on discovery | Bridge credential missing or invalid | Check `.env` and `INTEROPMCP_BASIC="Basic $(printf 'mcp_demo:change-me' | base64 -w0)"` |
+| `403` on tool execution | User is not a member of `InteropMCPRoles` | Use `mcp_demo` (entitled) instead of `mcp_demo2` (unentitled) |
+| Bridge won't come up | Supervisor does not restart by itself | `docker exec -d <container> sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run --status-tool false > /tmp/mcp.log 2>&1'` |
+| Catalog outdated after rebuild | Bind-mount overwrites `GeneratedTools.cls` | `BuildCatalog` runs during `docker build`; if necessary, re-provision: `docker exec <container> iris session IRIS -U IRISAPP < bootstrap-gateway.script` |
 
 ## Features
 
