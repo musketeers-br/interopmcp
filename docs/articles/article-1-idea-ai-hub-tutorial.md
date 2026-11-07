@@ -23,7 +23,7 @@
   - [Step 5: Call a critical tool — AccountBlock with Opencode](#step-5-call-a-critical-tool-accountblock-with-opencode)
   - [Step 6: Check invocation status with Opencode](#step-6-check-invocation-status-with-opencode)
   - [Step 7: Approve the critical call (human operator through IRIS Workflow)](#step-7-approve-the-critical-call-human-operator-through-iris-workflow)
-  - [Step 8: Approve the critical call (human operator through IRIS Workflow)](#step-8-approve-the-critical-call-human-operator-through-iris-workflow)
+  - [Step 8: Configure agent to auto-create workflow tasks for restricted CNPJ risk checks](#step-8-configure-agent-to-auto-create-workflow-tasks-for-restricted-cnpj-risk-checks)
 - [5. What this means](#5-what-this-means)
 
 ---
