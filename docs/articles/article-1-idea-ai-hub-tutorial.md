@@ -1,6 +1,6 @@
 # InteropMCP: Turn your InterSystems IRIS productions into MCP tools for AI agents
 
-**Resumo executivo / Executive summary**
+**TL;DR**
 
 - The IRIS InteropMCP exposes Business Services from an InterSystems IRIS Interoperability Production as native Model Context Protocol (MCP) tools.
 - No integration code needs to be rewritten: the gateway invokes your existing Business Service through `CreateBusinessService` + `ProcessInput` and preserves native traceability (`Ens.MessageHeader`, Visual Trace).
