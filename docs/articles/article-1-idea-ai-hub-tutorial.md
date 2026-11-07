@@ -8,6 +8,24 @@
 - Two separate audit planes: production-native (messages produced by the BS → BP → BO flow) and gateway-side (tool-call lifecycle, guardrail decisions, human approvals).
 - **Governance:** per-tool security classification (`readonly` / `write` / `critical`) and human-in-the-loop approval ensure AI agents operate within declared policies, while humans retain final authority over state-changing actions.
 
+## Contents
+
+- [1. The problem](#1-the-problem)
+- [2. The idea: a non-invasive gateway](#2-the-idea-a-non-invasive-gateway)
+- [3. How AI HUB helps](#3-how-ai-hub-helps)
+- [4. Tutorial: run the demo and call the tools](#4-tutorial-run-the-demo-and-call-the-tools)
+  - [Prerequisites](#prerequisites)
+  - [Step 0: Setup](#step-0-setup)
+  - [Step 1: Configure Opencode](#step-1-configure-opencode)
+  - [Step 2: List tools with Opencode](#step-2-list-tools-with-opencode)
+  - [Step 3: Call a readonly tool — PayLookup with Opencode](#step-3-call-a-readonly-tool-paylookup-with-opencode)
+  - [Step 4: Call a write tool — CustomerUpdate with Opencode](#step-4-call-a-write-tool-customerupdate-with-opencode)
+  - [Step 5: Call a critical tool — AccountBlock with Opencode](#step-5-call-a-critical-tool-accountblock-with-opencode)
+  - [Step 6: Check invocation status with Opencode](#step-6-check-invocation-status-with-opencode)
+  - [Step 7: Approve the critical call (human operator through IRIS Workflow)](#step-7-approve-the-critical-call-human-operator-through-iris-workflow)
+  - [Step 8: Approve the critical call (human operator through IRIS Workflow)](#step-8-approve-the-critical-call-human-operator-through-iris-workflow)
+- [5. What this means](#5-what-this-means)
+
 ---
 
 ## 1. The problem
