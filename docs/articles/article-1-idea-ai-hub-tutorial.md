@@ -87,6 +87,34 @@ InteropMCP is built on the **InterSystems AI HUB** framework in ObjectScript. Th
 
 ## 4. Tutorial: run the demo and call the tools
 
+### The scenario — modernizing an existing production with agentic capabilities
+
+Imagine a retail chain already running the demo production `br.musketeers.InteropMCP.Demo.Production` in production. It fulfills every current business requirement — payment lookups, address updates, risk checks, account blocking, and batch runs — with its Business Process / Business Operation chain delivering native traceability (`Ens.MessageHeader`, Visual Trace).
+
+Now the business wants to modernize: give AI agents the ability to invoke these same Business Services through natural language, while keeping authentication, per-tool guardrails, and dual-plane auditability. The constraint: no rewriting of integration logic and minimal rework to the existing production.
+
+InteropMCP meets this need. Because the Business Services already carry class parameters (`AIGATEWAY`, `AIGATEWAYDESC`, `REQUESTCLASS`), the registry discovers them automatically and publishes each as an MCP tool. The gateway fires only the target Business Service through `CreateBusinessService` + `ProcessInput`, preserving the existing BS → BP → BO message flow and Visual Trace exactly as before.
+
+**Governance — tool classification and human-in-the-loop.** Before giving agents access, the retail chain needs confidence that agentic operations will not bypass existing controls. InteropMCP enforces per-tool security classification and human-in-the-loop approval on every gateway call:
+
+- **readonly** tools (e.g. `PayLookup`) execute immediately — autonomous reads only.
+- **write** tools (e.g. `CustomerUpdate`, `RiskCheck`) run only when the caller's identity is established and authorized; the decision is logged.
+- **critical** tools (e.g. `AccountBlock`) are **held**: no Business Service runs until an operator approves through the IRIS Workflow portal or terminal (`Approvals.Approve`). The invocation stays in `pending-approval` and never reaches the production until decided.
+
+Every decision is recorded in the gateway's audit store (`Invocations`, `Approvals`, `Log`) — a separate audit plane from the production's own `Ens.MessageHeader` / Visual Trace. This separation is what makes it governance: agents operate within declared policies, and humans retain final authority over state-changing actions.
+
+The table below summarizes the retail scenario used throughout this tutorial:
+
+| Item | Class | Role |
+|------|-------|------|
+| `PayLookupBS` | `...Demo.PayLookupBS` | Check payment status (`readonly`) |
+| `CustomerUpdateBS` | `...Demo.CustomerUpdateBS` | Update delivery address (`write`) |
+| `RiskCheckBS` | `...Demo.RiskCheckBS` | Risk assessment (`write`) |
+| `AccountBlockBS` | `...Demo.AccountBlockBS` | Account inactivation (`critical`) |
+| `AuditProcess` / `AuditOperation` | BP / BO | Native production trace |
+
+**Scenario:** A finance assistant answers whether invoice 88201 was paid and, if asked, updates the customer's delivery address.
+
 All steps below were validated against a running InteropMCP container (`ai-hub-dev-template-iris-1`) exposing the MCP endpoint at `http://localhost:8080/mcp`.
 
 ### Prerequisites
@@ -359,28 +387,7 @@ Now, you have a new workflow task requesting an approval to invoke the Productio
 
 You can follow the same steps shown in steps 7-* to approve it or reject it. If you approve it, you should see the correponding message process in the Production.
 
-## 5. Hypothetical example: retail payment & address flow
-
-Imagine a retail chain running the demo production `br.musketeers.InteropMCP.Demo.Production`:
-
-| Item | Class | Role |
-|------|-------|------|
-| `PayLookupBS` | `...Demo.PayLookupBS` | Check payment status (`readonly`) |
-| `CustomerUpdateBS` | `...Demo.CustomerUpdateBS` | Update delivery address (`write`) |
-| `RiskCheckBS` | `...Demo.RiskCheckBS` | Risk assessment (`write`) |
-| `AccountBlockBS` | `...Demo.AccountBlockBS` | Account inactivation (`critical`) |
-| `AuditProcess` / `AuditOperation` | BP / BO | Native production trace |
-
-**Scenario:** A finance assistant answers whether invoice 88201 was paid and, if asked, updates the customer's delivery address.
-
-1. Agent: *"Has order 88201 for customer C-1 been paid?"* → calls `mcp_interopmcp_PayLookup` → production returns `Status: Compensated | Paid: Yes | Amount: 150.75`.
-2. Agent: *"Update customer 1's address to Av. Paulista, 1000."* → calls `mcp_interopmcp_CustomerUpdate` → production writes the update, gateway logs the caller identity (`mcp_demo`) and parameters.
-3. Agent: *"Run a risk check on CNPJ 12.345.678/0001-90."* → calls `mcp_interopmcp_RiskCheck` → gateway returns `_status: ok` with result `Status: Approved | Result: Clear`. Risk assessment executes immediately (classified as `write`).
-4. Agent: *"Block account for customer 1 — restricted CNPJ detected."* → calls `mcp_interopmcp_AccountBlock` → gateway returns `_status: held` with `invocationId` and `approvalId`. The call is not executed; it is parked as `pending-approval`. A human operator reviews and calls `Approvals.Approve(approvalId, "operator1")` via terminal. The gateway replays the original call with the same `invocationId` and updates status to `completed`.
-
-All three calls are visible in the Message Viewer and Visual Trace as genuine BS → BP → BO message flows — produced by the production, not by the gateway.
-
-## 6. What this means
+## 5. What this means
 
 InteropMCP lets AI agents talk to your existing InterSystems IRIS integrations without rewriting them, while keeping authentication, per-tool guardrails, and dual-plane auditability. The next article covers the security and authentication model in depth.
 
