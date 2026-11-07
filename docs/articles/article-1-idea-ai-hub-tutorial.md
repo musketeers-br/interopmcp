@@ -205,7 +205,7 @@ Expected result (5 tools from the demo production):
 
 > **Note on `Cnpj`**: `Cnpj` is the Brazilian company identification number, equivalent to the Employer Identification Number – EIN – in the US. In the demo environment use a valid example CNPJ; for a US context think of EIN as the analogous parameter.
 
-> **Note on reproducibility**: As AI is non-deterministic, your results may be sintatically different but they should be logically equivalents.
+> **Note on reproducibility**: As AI is non-deterministic, your results may be syntactically different but should be logically equivalent.
 
 ![Tools list in Opencode](img/article-1-step-02-opencode-tools.png)
 
@@ -342,7 +342,7 @@ Do ##class(br.musketeers.InteropMCP.Approvals).Approve(ApprovalId, "operator1")
 Halt
 ```
 
-Now, you had approved the account blocking request, you should be able to see it in the Production:
+Now that you have approved the account blocking request, you should be able to see it in the Production:
 
 ![Account Block in IRIS](img/article-1-step-05-opencode-accountblock-msg.png)
 
@@ -360,7 +360,7 @@ After approval the status should be `"completed"` and the `text` field will cont
 
 ### Step 8: Configure agent to auto-create workflow tasks for restricted CNPJ risk checks
 
-In the previous step, a workflow task for approvement was issued automatically by a critical tool in InteropMCP. Now, let's show the decision on restrict access to non critical tools could be delegated to the agent, using the CreateWorkflowTask tool.
+In the previous step, a workflow task for approval was issued automatically by a critical tool in InteropMCP. Now, let's show how the decision to restrict access to non-critical tools can be delegated to the agent, using the CreateWorkflowTask tool.
 
 In this example we'll use a hipothetical restrict CNPJ list store into a file to instruct an opencode agent to check it before calling any Risk Check analysis. In the `opencode.json` file, create a new key like this (note: this is already defined in the demo app repository)
 
