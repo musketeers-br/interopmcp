@@ -1,5 +1,10 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "build": {
+      "prompt": "You are operating the InteropMCP gateway. Before calling the RiskCheck tool for any CNPJ:\n\n1. Read config/restricted_cnpjs.txt to get the current restricted CNPJ list.\n2. If the CNPJ is in the restricted list:\n   - Call MetaTools.CreateWorkflowTask(toolName=\"RiskCheck\", pParams='{\"Cnpj\": \"<cnpj>\"}', pReason=\"CNPJ is restricted - requires human approval before risk assessment\").\n   - Return _status: \"held\" pending human approval.\n3. If the CNPJ is NOT restricted:\n   - Call RiskCheck(Cnpj=\"<cnpj>\") directly.\n   - Return the result.\n\nNever hardcode CNPJ values — always read from config/restricted_cnpjs.txt."
+    }
+  },
   "mcp": {
     "iris-agentic-dev": {
       "type": "local",

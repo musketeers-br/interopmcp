@@ -46,6 +46,9 @@ ClassMethod Run(pMode As %String = "prod") As %Status
     If $$$ISERR(sc) Quit sc
     Set sc = ..ProvisionApplication("secured")
     If $$$ISERR(sc) Quit sc
+    // Ensure workflow prerequisites automatically
+    Set sc = ##class(br.musketeers.InteropMCP.Workflow.Setup).EnsurePrerequisites()
+    If $$$ISERR(sc) Quit sc
     Quit sc
 }
 
@@ -131,7 +134,7 @@ ClassMethod EnsureAuditEvents() As %Status
         }
         If $$$ISERR(sc) {
             Set $NAMESPACE = oldNs
-            Quit sc
+            Quit
         }
     }
     Set $NAMESPACE = oldNs
@@ -153,11 +156,11 @@ ClassMethod EnsureSqlPrivileges() As %Status
         If table = "" Continue
         Set stmt = ##class(%SQL.Statement).%New()
         Set sc = stmt.%Prepare("GRANT SELECT ON br_musketeers_InteropMCP."_table_" TO "_..#RoleName)
-        If $$$ISERR(sc) Quit sc
+        If $$$ISERR(sc) Quit
         Set sc = stmt.%Execute()
         If $$$ISERR(sc) {
             Set text = $SYSTEM.Status.GetErrorText(sc)
-            If $ZConvert(text, "U") '[ "NOT FOUND" Quit sc
+            If $ZConvert(text, "U") '[ "NOT FOUND" Quit
             Set logData = ##class(%DynamicObject).%New()
             Do logData.%Set("table", table)
             Do ##class(br.musketeers.InteropMCP.Log).Write("warn", "setup", "Gateway table not compiled yet - SQL grant skipped", logData)

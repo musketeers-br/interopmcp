@@ -1,0 +1,132 @@
+/* Copyright (c) 2026 by InterSystems Corporation.
+   Cambridge, Massachusetts, U.S.A.  All rights reserved.
+   Confidential property of InterSystems Corporation. */
+
+Include Ensemble
+
+IncludeGenerator Ensemble
+
+/// Common base class for all config item instances
+Class Ens.Host Extends %RegisteredObject [ Abstract, ClassType = "", ProcedureBlock, System = 4 ]
+{
+
+/// 2 modes: Queue, InProc
+Parameter INVOCATION = "Queue";
+
+/// Duration of forced idleness before processing the next message, in milliseconds
+Property ThrottleDelay As %Numeric(MINVAL = 0) [ InitialExpression = 0 ];
+
+/// Send an Alert message whenever an error occurs here
+Property AlertOnError As %Boolean [ InitialExpression = 0 ];
+
+/// Send an Alert message if this number of seconds elapses with no messages being processed by this item. <br/>
+/// Note that this alert will be sent even if AlertOnError is False. <br/>
+/// Zero means no alerts of this type will be sent.
+Property InactivityTimeout As %Numeric(MINVAL = 0) [ InitialExpression = 0 ];
+
+/// Name of a Business Partner Profile associated with this item
+Property BusinessPartner As %String(MAXLEN = 128);
+
+/// The Alert Groups to which this item belongs.
+Property AlertGroups As %String(MAXLEN = 2500);
+
+/// Users can specify these values in the Configuration Editor
+Parameter SETTINGS As %String = "ThrottleDelay,AlertOnError:Alerting,InactivityTimeout:Alerting,BusinessPartner:Info:partnerSelector,AlertGroups:Alerting:selector?multiSelect=1&context={Ens.ContextSearch/ProductionAlertGroups?productionName=@productionId},FMGCalculation:FIFOMessageGrouping:dtlSelector,FMGCompletionHosts:FIFOMessageGrouping:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId}";
+
+/// Flag for returning an error that will exit the OnTask() loop and terminate the Job
+Property %QuitTask As %Integer [ InitialExpression = 0 ];
+
+/// The session id of the current message being processed
+Property %SessionId As %Integer;
+
+/// If doing keepalives, the time of the last return from MessageHeaderHandler()
+Property %LastHandledTime As %String [ Transient ];
+
+/// If doing keepalives, the time of the last return from MessageHeaderHandler() or OnKeepalive()
+Property %LastActionTime As %String [ Transient ];
+
+/// Copy of the text of the last error we reported, so we can avoid alerting more than once
+Property %LastReportedError As %String [ Transient ];
+
+/// Flag whether we have already warned about the class being recompiled
+Property %WarnedLatest As %Boolean [ InitialExpression = 0, Transient ];
+
+/// Is this a real live instance or a shadow instance used just to hold config settings.
+Property %isShadow As %String [ Transient ];
+
+/// The SuperSession id of the current message being processed
+Property %SuperSession As %String(MAXLEN = 300);
+
+/// This is to allow a process access to local variable storing Super Session.
+/// Similar to how a process has access to $$$JobSessionId.
+Method %SuperSessionSet(Arg As %String) As %Status [ ServerOnly = 1 ]
+{
+    Set i%%SuperSession=Arg
+    If Arg = "" {Kill $$$JobSuperSession} Else {Set $$$JobSuperSession=Arg}
+    Quit $$$OK
+}
+
+/// This is transient array of data to either set in request header
+/// when making SendRequestAs/Sync call
+/// and to store data from received request header. <br>
+/// Used for the FIFO Message Group handling to allow passing
+/// the FIFO Message Group information from one host to the next
+/// as needed. <br>
+/// It also allows for custom code to set various FIFO Message Group
+/// data for the next request to be sent <br>
+Property RequestHdrData As %String [ MultiDimensional ];
+
+/// Optional when using dedicated pool of job(s): <br>
+/// When assigning a message group identifier
+/// for messages sent received by this host, this is a
+/// comma separated list of the host items that
+/// can be the last in the processing of messages for the
+/// message group identifier. <br>
+/// The hosts specified will be responsible for releasing the hold
+/// on the particular message group identifier.<br>
+/// If this is empty then it will default to this host if
+/// applying a message grouping to message processing. <br>
+/// Note: The first matching host will be the one to release. <br>
+Property FMGCompletionHosts As %String(MAXLEN = 3000);
+
+/// Optional when using dedicated pool of job(s): <br>
+/// This is the DTL used to generate the message group
+/// identifier that will be associated for the messages queued to this host. <br>
+/// If a message group identifier is set then only one message per
+/// message group identifier can be dequeued and be considered in the
+/// pipeline at a time. The 'pipeline' is the route from this host to
+/// the Completion Hosts. <br>
+/// This DTL needs to be set to use 'new' for the target. <br>
+/// The source is the request body <br>
+/// The target is Ens.Queue.FIFOMessageGroup.Data <br>
+/// aux is not defined <br>
+Property FMGCalculation As %String(MAXLEN = 128);
+
+/// A comma-separated list of variables to retain in the context between messages. <br/>
+/// If this parameter is set, all variables execept those specified in this list will be killed before each message. <br/>
+/// This parameter is ignored in InProc business hosts. <br/>
+/// This parameter is currently only supported in business operations.
+Parameter CONTEXT As STRING;
+
+Method ClearContext() As %Status [ Final, Internal ]
+{
+    Set ctx = %parameter("CONTEXT")
+    If ctx'="" {
+        For i=1:1:$Length(ctx, ",") {
+            Set var = $Piece(ctx, ",", i)
+            Return:'$ZName(var,0)||($Extract(var)'="%") $$$ERROR($$$InvalidParameter1, var)
+        }
+        Do %code.WriteLine(" Kill (%Ensemble," _ ctx _ ")")
+    }
+
+    Do %code.WriteLine(" Return $$$OK")
+    Return $$$OK
+}
+
+Method SendRequestSync(pTargetDispatchName As %String, pRequest As %Library.Persistent, ByRef pResponse As %Library.Persistent, pTimeout As %Numeric = -1, pDescription As %String = "") As %Status
+{
+    Quit $$$EnsError($$$NotImplemented)
+}
+
+/// Internal method to dispatch multiple business invocation synchronously <br>
+/// <parameter>pCallStructList

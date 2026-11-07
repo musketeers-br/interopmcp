@@ -46,22 +46,24 @@ The AI Hub image is **not on Docker Hub** — you must download it from the Inte
    Otherwise, edit `Dockerfile` and change the `ARG IMAGE=...` line to match your loaded image tag.
 
 5. **Prepare credentials**
+   1. Crie `.env` a partir de `.env.example` e corrija a senha da bridge:
+      ```bash
+      cp .env.example .env && sed -i 's/^WG_PASS=change-me/WG_PASS=SYS/' .env
+      ```
+      > O `WG_PASS` deve ser `SYS` (senha padrão do IRIS) para a bridge `iris-mcp-server` se conectar ao nó. Sem isso o catálogo fica vazio (`names=[]`) e chamadas de ferramentas falham com `I/O error: early eof`.
 
-   Create `.env` from `.env.example` and export the Basic auth header the opencode config uses:
+   2. Exporte a credencial de autenticação do cliente para o opencode e outros clientes MCP:
+      ```bash
+      export INTEROPMCP_BASIC="Basic $(printf 'mcp_demo:change-me' | base64 -w0)"
+      ```
+      > Adicione essa linha ao `~/.bashrc` para que o opencode (e outros clientes MCP) enviem o header `Authorization` corretamente. Essa variável é **client-side** — não é lida pelo container. Para persistir entre rebuilds, adicione ao `~/.bashrc` e abra um novo terminal.
 
-   ```bash
-   cp .env.example .env
-   # Edit .env if needed, then add this export to ~/.bashrc so opencode
-   # inherits it on every launch:
-   export INTEROPMCP_BASIC="Basic $(printf 'mcp_demo:change-me' | base64 -w0)"
-   ```
+   > `opencode.json` lê `{env:INTEROPMCP_BASIC}` do ambiente do processo no startup.
+   > A transient `export` é perdida na reinicialização, e o rebuild do container não atualiza
+   > `~/.bashrc`/`.env` (eles ficam fora da imagem). Persista em `~/.bashrc`, então abra um
+   > novo terminal.
 
-   > `opencode.json` reads `{env:INTEROPMCP_BASIC}` from the process environment at startup.
-   > A transient `export` is lost on restart, and a container rebuild does **not** update
-   > `~/.bashrc`/`.env` (they live outside the image). Persist it in `~/.bashrc`, then open a
-   > new terminal.
-
-6. **Start the container**
+   6. **Start the container**
 
    For a clean rebuild (recommended the first time or after changes):
 

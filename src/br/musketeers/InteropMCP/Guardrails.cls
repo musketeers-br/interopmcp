@@ -19,14 +19,13 @@ Class br.musketeers.InteropMCP.Guardrails Extends %RegisteredObject
 /// the gateway resolves the live caller instead of recording the placeholder.
 Parameter LegacyAgentPlaceholder = "agent";
 
-/// Returns the identity attributed to the current invocation. In secured
-/// mode the MCP Server CSP application has already authenticated the caller,
-/// so $USERNAME is the real IRIS user. In demo mode - and in the defensive
-/// cases where no identity was established - the gateway attributes the call
-/// to the explicit local-dev marker instead of an anonymous placeholder.
+/// Returns the identity attributed to the current invocation. The MCP Server
+/// CSP application has already authenticated the caller in secured mode,
+/// so $USERNAME is the real IRIS user. When no identity was established
+/// the gateway attributes the call to the explicit local-dev marker instead of
+/// an anonymous placeholder.
 ClassMethod CurrentAgent() As %String
 {
-    If ##class(br.musketeers.InteropMCP.Setup).GetMode() = "demo" Quit "local-dev"
     Set user = $USERNAME
     If (user = "") || (user = "UnknownUser") Quit "local-dev"
     Quit user
@@ -77,6 +76,14 @@ ClassMethod Check(pTool As %String, pParams As %DynamicObject, pAgent As %String
         Set pInvocationId = invId
         Set sc = ##class(br.musketeers.InteropMCP.Approvals).CreateRequest(invId, .pHoldId)
         If $$$ISERR(sc) Set pSC = sc Quit
+
+        // Create linked Workflow task for portal-based approval (non-blocking)
+        Set sc = ##class(br.musketeers.InteropMCP.WorkflowBridge).CreateTask(pHoldId)
+        If $$$ISERR(sc) {
+            Do logData.%Set("workflowTaskError", $System.Status.GetErrorText(sc))
+            Do ##class(br.musketeers.InteropMCP.Log).Write("warn", "workflow", "TaskCreationNonBlocking", logData)
+        }
+
         Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(invId, "pending-approval", "", "", 0)
         Do logData.%Set("approval", pHoldId)
         Do logData.%Set("invocation", invId)

@@ -35,6 +35,14 @@ Property DecidedAt As %TimeStamp;
 /// cancellations (which are recorded as rejections with a reason).
 Property Reason As %String(MAXLEN = 2000);
 
+/// IRIS Workflow Task ID linked to this approval. Populated when a Workflow
+/// task is created for operator decision via Management Portal. Empty when
+/// the approval is decided solely through terminal commands.
+Property TaskId As %String(MAXLEN = 64);
+
+/// Unique index on TaskId so each Workflow task links to at most one approval.
+Index TaskIdIdx On TaskId [ Unique ];
+
 /// Creates a pending approval request gating pInvocationId and returns the
 /// new ApprovalId through pApprovalId. Called by Guardrails on the critical
 /// path, right after the invocation is recorded as pending-approval.
@@ -56,19 +64,26 @@ ClassMethod Approve(pApprovalId As %String, pApprover As %String) As %Status
     Set rid = ""
     &sql(SELECT ID INTO :rid FROM br_musketeers_InteropMCP.Approvals WHERE ApprovalId = :pApprovalId)
     If rid = "" Quit $$$ERROR($$$GeneralError, "Approval not found: "_pApprovalId)
+
+    // Exclusive lock to prevent concurrent decision race conditions
+    Lock +^InteropMCP.ApprovalsD(rid):10
+    If $Test = 0 Quit $$$ERROR($$$GeneralError, "Could not acquire lock on approval: "_pApprovalId)
+
     Set ap = ..%OpenId(rid)
-    If ap.Decision '= "pending" Quit $$$ERROR($$$GeneralError, "Approval already decided")
+    If ap.Decision '= "pending" {
+        Lock -^InteropMCP.ApprovalsD(rid)
+        Quit $$$ERROR($$$GeneralError, "Approval already decided")
+    }
     Set ap.Decision = "approved"
     Set ap.Approver = pApprover
     Set ap.DecidedAt = $ZDateTime($Horolog, 3)
     Set sc = ap.%Save()
+    Lock -^InteropMCP.ApprovalsD(rid)
     If $$$ISERR(sc) Quit sc
     Set logData = ##class(%DynamicObject).%New()
     Do logData.%Set("approval", pApprovalId)
     Do logData.%Set("approver", pApprover)
     Do ##class(br.musketeers.InteropMCP.Log).Write("info", "approval", "Approved", logData)
-
-    // Release the gated invocation
     Set invId = ap.InvocationId
     Set invRid = ##class(br.musketeers.InteropMCP.Invocations).GetRowId(invId)
     If invRid '= "" {
@@ -99,13 +114,22 @@ ClassMethod Reject(pApprovalId As %String, pApprover As %String, pReason As %Str
     Set rid = ""
     &sql(SELECT ID INTO :rid FROM br_musketeers_InteropMCP.Approvals WHERE ApprovalId = :pApprovalId)
     If rid = "" Quit $$$ERROR($$$GeneralError, "Approval not found: "_pApprovalId)
+
+    // Exclusive lock to prevent concurrent decision race conditions
+    Lock +^InteropMCP.ApprovalsD(rid):10
+    If $Test = 0 Quit $$$ERROR($$$GeneralError, "Could not acquire lock on approval: "_pApprovalId)
+
     Set ap = ..%OpenId(rid)
-    If ap.Decision '= "pending" Quit $$$ERROR($$$GeneralError, "Approval already decided")
+    If ap.Decision '= "pending" {
+        Lock -^InteropMCP.ApprovalsD(rid)
+        Quit $$$ERROR($$$GeneralError, "Approval already decided")
+    }
     Set ap.Decision = "rejected"
     Set ap.Approver = pApprover
     Set ap.DecidedAt = $ZDateTime($Horolog, 3)
     Set ap.Reason = pReason
     Set sc = ap.%Save()
+    Lock -^InteropMCP.ApprovalsD(rid)
     If $$$ISERR(sc) Quit sc
     Set logData = ##class(%DynamicObject).%New()
     Do logData.%Set("approval", pApprovalId)
@@ -170,6 +194,9 @@ Storage Default
 </Value>
 <Value name="7">
 <Value>Reason</Value>
+</Value>
+<Value name="8">
+<Value>TaskId</Value>
 </Value>
 </Data>
 <DataLocation>^InteropMCP.ApprovalsD</DataLocation>

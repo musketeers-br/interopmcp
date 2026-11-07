@@ -185,7 +185,6 @@ In secured mode the CSP application has already authenticated the caller, so the
 ```objectscript
 ClassMethod CurrentAgent() As %String
 {
-    If ##class(br.musketeers.InteropMCP.Setup).GetMode() = "demo" Quit "local-dev"
     Set user = $USERNAME
     If (user = "") || (user = "UnknownUser") Quit "local-dev"
     Quit user
@@ -193,7 +192,7 @@ ClassMethod CurrentAgent() As %String
 ```
 
 - Real IRIS user → identity stored with every invocation (`AgentIdentity` in `br_musketeers_InteropMCP.Invocations`).
-- Empty or `UnknownUser` → marker `local-dev` (development/localhost-only containers).
+- Empty or `UnknownUser` → marker `local-dev` (fallback when identity was not established).
 
 ## 4. Demo users
 
@@ -328,7 +327,7 @@ And a pending critical approval:
 ## 9. Secure deployment checklist
 
 1. Enable platform auditing in the IRIS Management Portal, System Administration > Security > Auditing.
-2. Provision the endpoint: `Do ##class(br.musketeers.InteropMCP.Setup).Run("prod")`.
+2. Provision the endpoint: `Do ##class(br.musketeers.InteropMCP.Setup).Run()`.
 3. Create callers with role `InteropMCPRoles`; create unentitled users for negative testing.
 4. Verify `401` without credentials and `403` for users without the role.
 5. Classify each Business Service (`readonly` / `write` / `critical`) by operational risk.

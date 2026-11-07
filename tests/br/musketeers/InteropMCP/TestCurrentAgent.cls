@@ -2,32 +2,12 @@ Class br.musketeers.InteropMCP.TestCurrentAgent Extends %UnitTest.TestCase
 {
 
 /// The gateway attributes a call to the authenticated IRIS user in secured
-/// mode and to the explicit local-dev marker in demo mode. It never records
-/// an empty identity.
+/// mode. It never records an empty identity.
 Method TestCurrentAgentInSecuredMode() As %Status
 {
-    Set saved = ##class(br.musketeers.InteropMCP.Setup).GetMode()
-    Set sc = ##class(br.musketeers.InteropMCP.Setup).SetMode("secured")
-    If $$$ISERR(sc) Quit sc
     Set agent = ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent()
-    Set sc = ##class(br.musketeers.InteropMCP.Setup).SetMode(saved)
-    If $$$ISERR(sc) Quit sc
     Do $$$AssertTrue(agent '= "", "Secured mode resolves an identity")
-    Do $$$AssertTrue(agent '= "local-dev", "Secured mode does not use the demo marker")
-    Quit $$$OK
-}
-
-/// Demo mode is explicitly unauthenticated, so the gateway attributes every
-/// call to the local-dev marker instead of an anonymous placeholder.
-Method TestCurrentAgentInDemoMode() As %Status
-{
-    Set saved = ##class(br.musketeers.InteropMCP.Setup).GetMode()
-    Set sc = ##class(br.musketeers.InteropMCP.Setup).SetMode("demo")
-    If $$$ISERR(sc) Quit sc
-    Set agent = ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent()
-    Set sc = ##class(br.musketeers.InteropMCP.Setup).SetMode(saved)
-    If $$$ISERR(sc) Quit sc
-    Do $$$AssertEquals(agent, "local-dev", "Demo mode uses the local-dev marker")
+    Do $$$AssertTrue(agent '= "local-dev", "Secured mode does not use the local-dev marker for authenticated user")
     Quit $$$OK
 }
 
@@ -36,15 +16,10 @@ Method TestCurrentAgentInDemoMode() As %Status
 /// caller.
 Method TestResolveAgent() As %Status
 {
-    Set saved = ##class(br.musketeers.InteropMCP.Setup).GetMode()
-    Set sc = ##class(br.musketeers.InteropMCP.Setup).SetMode("secured")
-    If $$$ISERR(sc) Quit sc
     Set kept = ##class(br.musketeers.InteropMCP.Guardrails).ResolveAgent("agent-42")
     Set resolved = ##class(br.musketeers.InteropMCP.Guardrails).ResolveAgent("")
     Set legacy = ##class(br.musketeers.InteropMCP.Guardrails).ResolveAgent("agent")
     Set live = ##class(br.musketeers.InteropMCP.Guardrails).CurrentAgent()
-    Set sc = ##class(br.musketeers.InteropMCP.Setup).SetMode(saved)
-    If $$$ISERR(sc) Quit sc
     Do $$$AssertEquals(kept, "agent-42", "Explicit identity is preserved")
     Do $$$AssertEquals(resolved, live, "Empty identity resolves to the live caller")
     Do $$$AssertEquals(legacy, live, "Legacy placeholder resolves to the live caller")
