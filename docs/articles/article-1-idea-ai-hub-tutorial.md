@@ -18,9 +18,9 @@
   - [Step 0: Setup](#step-0-setup)
   - [Step 1: Configure Opencode](#step-1-configure-opencode)
   - [Step 2: List tools with Opencode](#step-2-list-tools-with-opencode)
-  - [Step 3: Call a readonly tool — PayLookup with Opencode](#step-3-call-a-readonly-tool-paylookup-with-opencode)
-  - [Step 4: Call a write tool — CustomerUpdate with Opencode](#step-4-call-a-write-tool-customerupdate-with-opencode)
-  - [Step 5: Call a critical tool — AccountBlock with Opencode](#step-5-call-a-critical-tool-accountblock-with-opencode)
+  - [Step 3: Call a readonly tool — PayLookup with Opencode](#step-3-call-a-readonly-tool--paylookup-with-opencode)
+  - [Step 4: Call a write tool — CustomerUpdate with Opencode](#step-4-call-a-write-tool--customerupdate-with-opencode)
+  - [Step 5: Call a critical tool — AccountBlock with Opencode](#step-5-call-a-critical-tool--accountblock-with-opencode)
   - [Step 6: Check invocation status with Opencode](#step-6-check-invocation-status-with-opencode)
   - [Step 7: Approve the critical call (human operator through IRIS Workflow)](#step-7-approve-the-critical-call-human-operator-through-iris-workflow)
   - [Step 8: Configure agent to auto-create workflow tasks for restricted CNPJ risk checks](#step-8-configure-agent-to-auto-create-workflow-tasks-for-restricted-cnpj-risk-checks)
@@ -43,56 +43,11 @@ InteropMCP flips this model. Instead of building new integrations, it **exposes 
 
 Removing the gateway changes nothing about the production itself (zero-regression requirement).
 
-<details>
-<summary>🗺️ InteropMCP Architecture Diagram</summary>
-
 The diagram uses the **demo production** (`br.musketeers.InteropMCP.Demo.Production`) as a concrete example to aid comprehension. This demo production exposes five Business Services — `PayLookupBS`, `CustomerUpdateBS`, `RiskCheckBS`, `AccountBlockBS`, and `BatchRunBS` — each annotated for AI exposure via class parameters (`AIGATEWAY`, `AIGATEWAYDESC`, `REQUESTCLASS`), plus an `AuditProcess` Business Process and `AuditOperation` Business Operation that provide native traceability (`Ens.MessageHeader`, Visual Trace).
 
 InteropMCP itself is **production-agnostic**: it is not tied to the demo and works with any InterSystems IRIS Interoperability Production whose Business Services carry the same annotations. The demo is used only to make the flow easier to understand; you can replace it with your own production and re-run `br.musketeers.InteropMCP.Registry.BuildCatalog` to generate the corresponding tools.
 
-```mermaid
-flowchart TD
-    subgraph Agent["AI Agent (MCP Client)"]
-        A[AI Agent · knows the MCP · uses its tools]
-    end
-
-    subgraph MCP["MCP Endpoint — AI HUB"]
-        MS[br.musketeers.InteropMCP.MCPService]
-        MS_Inherit[extends %AI.MCP Service]
-        MS --> MS_Inherit
-    end
-
-    subgraph Registry["Introspection — Registry.BuildCatalog"]
-        R[Reads BS annotations · builds catalog]
-    end
-
-    subgraph Production["IRIS Interoperability Production"]
-        P[br.musketeers.InteropMCP.Demo.Production]
-    end
-
-    subgraph BSTree["Business Services"]
-        BS1[PayLookupBS · readonly]
-        BS_Dots[...]
-        BS5[BatchRunBS · readonly]
-    end
-
-    subgraph Tools["Generated Tools — one per BS"]
-        GT[br.musketeers.InteropMCP.GeneratedTools]
-        GT -->|extends| AITool[%AI.Tool]
-        GT -->|contains| T1[PayLookup]
-        GT -->|contains| T_Dots[...]
-        GT -->|contains| T5[BatchRun]
-    end
-
-    %% Architecture flow
-    P --> BSTree
-    BSTree --> R
-    R --> MS
-    R --> GT
-    MS --> A
-    A --> GT
-```
-</details>
+![Architecture Diagram](img/arch-diagram.png)
 
 For critical tools, InteropMCP adds a non-invasive human-in-the-loop layer. When a tool is classified as `critical` by the guardrail, the invocation is held and an approval record is created in `br.musketeers.InteropMCP.Approvals`. `br.musketeers.InteropMCP.WorkflowBridge.CreateTask` then creates a native IRIS Interoperability Workflow `TaskRequest/TaskResponse` linked to that approval and distributes it to the role `Operators`. The task appears in the IRIS DeepSee User Portal Workflow inbox at `http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen`, providing a familiar UI for operators without modifying the production.
 
@@ -205,7 +160,7 @@ Expected result (5 tools from the demo production):
 
 > **Note on `Cnpj`**: `Cnpj` is the Brazilian company identification number, equivalent to the Employer Identification Number – EIN – in the US. In the demo environment use a valid example CNPJ; for a US context think of EIN as the analogous parameter.
 
-> **Note on reproducibility**: As AI is non-deterministic, your results may be syntactically different but should be logically equivalent.
+> **Note on reproducibility**: As AI is non-deterministic, your results may be sintatically different but they should be logically equivalents.
 
 ![Tools list in Opencode](img/article-1-step-02-opencode-tools.png)
 
@@ -342,7 +297,7 @@ Do ##class(br.musketeers.InteropMCP.Approvals).Approve(ApprovalId, "operator1")
 Halt
 ```
 
-Now that you have approved the account blocking request, you should be able to see it in the Production:
+Now, you had approved the account blocking request, you should be able to see it in the Production:
 
 ![Account Block in IRIS](img/article-1-step-05-opencode-accountblock-msg.png)
 
@@ -360,7 +315,7 @@ After approval the status should be `"completed"` and the `text` field will cont
 
 ### Step 8: Configure agent to auto-create workflow tasks for restricted CNPJ risk checks
 
-In the previous step, a workflow task for approval was issued automatically by a critical tool in InteropMCP. Now, let's show how the decision to restrict access to non-critical tools can be delegated to the agent, using the CreateWorkflowTask tool.
+In the previous step, a workflow task for approvement was issued automatically by a critical tool in InteropMCP. Now, let's show the decision on restrict access to non critical tools could be delegated to the agent, using the CreateWorkflowTask tool.
 
 In this example we'll use a hipothetical restrict CNPJ list store into a file to instruct an opencode agent to check it before calling any Risk Check analysis. In the `opencode.json` file, create a new key like this (note: this is already defined in the demo app repository)
 
