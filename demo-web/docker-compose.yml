@@ -1,0 +1,190 @@
+services:
+  iris:
+    build:
+      # Contexto na raiz do repo: a imagem compila o src/ canonico da raiz
+      # (via zpm load -> module.xml raiz), sem copia duplicada em demo-web/iris/src.
+      context: ..
+      dockerfile: demo-web/iris/Dockerfile
+    env_file:
+      - .env
+    environment:
+      - ISC_CPF_MERGE_FILE=/home/irisowner/dev/merge.cpf
+      - INTEROPMCP_MODE=secured
+    ports:
+      - 52773:52773
+      - 8080:8080
+    volumes:
+      - ./../:/home/irisowner/dev:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'timeout 2 bash -c \"cat < /dev/null > /dev/tcp/localhost/1972\" && echo OK || exit 1'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    container_name: ai-hub-demo-web-iris-1
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+
+  mcp-launcher:
+    image: docker:24-cli
+    container_name: ai-hub-demo-web-mcp-launcher
+    depends_on:
+      iris:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./../:/home/irisowner/dev:ro
+    env_file:
+      - .env
+    environment:
+      - CONTAINER_NAME=ai-hub-demo-web-iris-1
+      - INTEROPMCP_BASIC
+    command: >
+      sh -c "
+        echo 'Waiting for IRIS container to be healthy...';
+        while ! docker inspect -f '{{.State.Health.Status}}' $${CONTAINER_NAME} 2>/dev/null | grep -q 'healthy'; do sleep 2; done;
+        sleep 10;
+        echo 'Provisioning MCP gateway endpoint';
+        docker exec $${CONTAINER_NAME} sh -c 'iris session IRIS < /home/irisowner/dev/bootstrap-gateway.script';
+        echo 'Starting iris-mcp-server (http transport)';
+        docker exec -d -e WG_USER=$${WG_USER} -e WG_PASS=$${WG_PASS} $${CONTAINER_NAME} sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run --status-tool false > /tmp/mcp.log 2>&1';
+        echo 'Waiting for mcp-server listener on :8080';
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+          if docker exec $${CONTAINER_NAME} sh -c 'grep -q Starting.HTTP.streaming.server /tmp/mcp.log 2>/dev/null'; then break; fi;
+          sleep 1;
+        done;
+        echo 'Validating gateway configuration';
+        if [ -n \"$${INTEROPMCP_DEMO_PASSWORD}\" ]; then
+          docker exec -e INTEROPMCP_USER=\"$${INTEROPMCP_USER:-mcp_demo}\" -e INTEROPMCP_DEMO_PASSWORD=\"$${INTEROPMCP_DEMO_PASSWORD}\" $${CONTAINER_NAME} python3 /home/irisowner/dev/scripts/validate-mcp-config.py || echo 'WARNING: gateway configuration validation failed';
+        elif [ -n \"$${INTEROPMCP_BASIC}\" ]; then
+          docker exec -e INTEROPMCP_BASIC=\"$${INTEROPMCP_BASIC}\" $${CONTAINER_NAME} python3 /home/irisowner/dev/scripts/validate-mcp-config.py || echo 'WARNING: gateway configuration validation failed';
+        else
+          echo 'Skipping configuration validation';
+        fi;
+        echo 'Supervising mcp-server';
+        while true; do
+          sleep 30;
+          if ! docker exec $${CONTAINER_NAME} sh -c 'pgrep -f \"[i]ris-mcp-server\" > /dev/null 2>&1'; then
+            echo 'mcp-server down; restarting';
+            docker exec -d $${CONTAINER_NAME} sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run --status-tool false > /tmp/mcp.log 2>&1';
+          fi;
+        done
+      "
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  opencode:
+    build:
+      context: .
+      dockerfile: Dockerfile.opencode
+    env_file:
+      - .env
+    ports:
+      - 3030:3030
+    volumes:
+      - opencode_data:/root/.opencode
+    depends_on:
+      iris:
+        condition: service_healthy
+      mcp-launcher:
+        condition: service_started
+    container_name: ai-hub-demo-web-opencode-1
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:nosuid,size=100m
+      - /root/.local:noexec,nosuid,size=100m
+      - /root/.cache:noexec,nosuid,size=100m
+      - /root/.config:noexec,size=50m
+
+  ttyd-opencode:
+    build:
+      context: .
+      dockerfile: Dockerfile.ttyd
+    env_file:
+      - .env
+    environment:
+      - TTYD_LOGIN=${TTYD_LOGIN:-}
+    # Segurança: terminal web NUNCA publicado na internet; apenas localhost.
+    ports:
+      - 127.0.0.1:7681:7681
+    volumes:
+      - ttyd_opencode_data:/root/.opencode
+      # Single source of truth for the restricted CNPJ list (read by the agent prompt).
+      - ./../config/restricted_cnpjs.txt:/app/config/restricted_cnpjs.txt:ro
+    depends_on:
+      iris:
+        condition: service_healthy
+      mcp-launcher:
+        condition: service_started
+      opencode:
+        condition: service_started
+    container_name: ai-hub-demo-web-ttyd-opencode-1
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      # /tmp precisa permitir execução (OpenTUI extrai .so para /tmp)
+      - /tmp:nosuid,exec,size=512m
+      - /root/.local:noexec,nosuid,size=100m
+      - /root/.cache:noexec,nosuid,size=100m
+      - /root/.config:noexec,size=50m
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        - IRIS_WEB_BASE=${IRIS_WEB_BASE}
+    env_file:
+      - .env
+    environment:
+      # Overrides .env at runtime; publish-ngrok.sh exports the public IRIS URL.
+      - IRIS_WEB_BASE=${IRIS_WEB_BASE}
+    ports:
+      - 127.0.0.1:3000:3000
+    depends_on:
+      opencode:
+        condition: service_started
+    container_name: ai-hub-demo-web-web-1
+    volumes:
+      # Single source of truth for the restricted CNPJ list (also read by the agent).
+      - ./../config/restricted_cnpjs.txt:/app/config/restricted_cnpjs.txt:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:nosuid,size=100m
+      - /root/.local:noexec,nosuid,size=100m
+      - /root/.cache:noexec,nosuid,size=100m
+      - /root/.config:noexec,nosuid,size=50m
+      - /var/cache/nginx:noexec,nosuid,size=50m
+      - /var/lib/nginx:noexec,nosuid,size=50m
+      - /var/log/nginx:noexec,nosuid,size=50m
+      - /run:noexec,nosuid,size=50m
+
+volumes:
+  opencode_data:
+  ttyd_opencode_data:

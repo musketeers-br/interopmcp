@@ -31,3 +31,13 @@ Thumbs.db
 *.key
 *.crt
 *.pem
+ngrok.yml
+
+# Vídeo do tutorial (artefatos de gravação)
+demo-web/output/
+demo-web/scripts/node_modules/
+demo-web/scripts/package-lock.json
+
+# Binário do OpenCode (~185MB): baixado no build das imagens Docker.
+# Não versionar no Git — o GitHub rejeita blobs >100MB.
+opencode-bin

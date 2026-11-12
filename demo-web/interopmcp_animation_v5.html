@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InteropMCP - Animated Architecture Guide</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+    :root {
+      --bg-color: #F8FAFC;
+      --card-bg: #FFFFFF;
+      --agent-color: #93C5FD;
+      --agent-dark: #1E40AF;
+      --mcp-color: #C084FC;
+      --mcp-dark: #6B21A8;
+      --iris-color: #6EE7B7;
+      --iris-dark: #047857;
+      --warning-color: #FDE047;
+      --critical-color: #F472B6;
+      --text-main: #0F172A;
+      --text-muted: #475569;
+      --white: #FFFFFF;
+      --border-color: #E2E8F0;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background-color: #0F172A;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: var(--text-main);
+      padding: 20px;
+    }
+
+    .animation-container {
+      position: relative;
+      width: 1000px;
+      height: 600px;
+      background-color: var(--bg-color);
+      border-radius: 20px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Controls at TOP */
+    .controls {
+      position: absolute;
+      top: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      padding: 8px 20px;
+      border-radius: 40px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+      z-index: 100;
+      border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+
+    .btn {
+      background: var(--text-main);
+      color: var(--white);
+      border: none;
+      padding: 7px 16px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.82rem;
+      transition: all 0.2s ease;
+      letter-spacing: 0.02em;
+    }
+
+    .btn:hover {
+      background: #1E293B;
+      transform: translateY(-1px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .progress-bar-container {
+      width: 160px;
+      height: 6px;
+      background: #E2E8F0;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background: var(--mcp-color);
+      transition: width 0.1s linear;
+    }
+
+    .scene-indicator {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      min-width: 90px;
+      text-align: right;
+    }
+
+    /* Subtitle Banner at BOTTOM with 75% background transparency */
+    .subtitle-banner {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 88%;
+      max-width: 850px;
+      background: rgba(15, 23, 42, 0.30);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: var(--white);
+      padding: 12px 24px;
+      border-radius: 14px;
+      font-size: 1.02rem;
+      font-weight: 600;
+      text-align: center;
+      z-index: 100;
+      box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      letter-spacing: -0.01em;
+      line-height: 1.4;
+    }
+
+    /* Canvas Stage */
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="animation-container">
+    <div class="controls">
+      <button id="btnPlayPause" class="btn">Pause</button>
+      <button id="btnRestart" class="btn">Restart</button>
+      <div class="progress-bar-container">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+      <div id="sceneIndicator" class="scene-indicator">Scene 1 / 7</div>
+    </div>
+
+    <canvas id="stage" width="1000" height="600"></canvas>
+    
+    <div id="subtitle" class="subtitle-banner">Initializing InteropMCP Animation...</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('stage');
+    const ctx = canvas.getContext('2d');
+    const subtitleEl = document.getElementById('subtitle');
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const btnRestart = document.getElementById('btnRestart');
+    const progressBar = document.getElementById('progressBar');
+    const sceneIndicator = document.getElementById('sceneIndicator');
+
+    // Load InterSystems Logo Image
+    const irisLogo = new Image();
+    irisLogo.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQyq623z9iyn9WFVZJyqO0AKoL0SN50xr1yWT2JLD_bXvz4Nwp72T9VgtY&s=10';
+    let isLogoLoaded = false;
+    irisLogo.onload = () => { isLogoLoaded = true; };
+
+    // Scene Definitions
+    const scenes = [
+      {
+        id: 1,
+        duration: 6,
+        subtitle: "InteropMCP: Turn your InterSystems IRIS productions into native MCP tools for AI agents.",
+        render: renderOverviewScene
+      },
+      {
+        id: 2,
+        duration: 8,
+        subtitle: "The Problem: Traditional integration requires manual REST endpoints and loses native traceability.",
+        render: renderSceneProblem
+      },
+      {
+        id: 3,
+        duration: 10,
+        subtitle: "Non-invasive Gateway: Business Services are auto-discovered and exposed as typed MCP tools.",
+        render: renderSceneGateway
+      },
+      {
+        id: 4,
+        duration: 12,
+        subtitle: "Native Execution: Invokes existing Business Services directly via CreateBusinessService + ProcessInput.",
+        render: renderSceneExecution
+      },
+      {
+        id: 5,
+        duration: 14,
+        subtitle: "Governance & Safety: Per-tool classification (readonly, write, critical) with Human-in-the-Loop IRIS Workflow approval.",
+        render: renderSceneGovernance
+      },
+      {
+        id: 6,
+        duration: 10,
+        subtitle: "Built on InterSystems AI HUB (ObjectScript) & deployed as a containerized workload.",
+        render: renderSceneAIHub
+      },
+      {
+        id: 7,
+        duration: 8,
+        subtitle: "Ready to see it in action? Next up: Live Demo using Opencode to call IRIS tools!",
+        render: renderDemoHookScene
+      }
+    ];
+
+    const totalDuration = scenes.reduce((acc, s) => acc + s.duration, 0);
+    let currentTime = 0;
+    let isPlaying = true;
+    let lastTimestamp = null;
+
+    const COLORS = {
+      bg: '#F8FAFC',
+      agent: '#93C5FD',
+      agentDark: '#1D4ED8',
+      mcp: '#C084FC',
+      mcpDark: '#7E22CE',
+      iris: '#6EE7B7',
+      irisDark: '#047857',
+      warning: '#FDE047',
+      critical: '#F472B6',
+      dark: '#0F172A',
+      textMuted: '#475569',
+      red: '#EF4444',
+      cardBg: '#FFFFFF',
+      success: '#10B981'
+    };
+
+    // Ambient floating particles
+    let particles = [];
+    for(let i = 0; i < 25; i++) {
+      particles.push({
+        x: Math.random() * 1000,
+        y: Math.random() * 600,
+        r: Math.random() * 3 + 1.5,
+        dx: (Math.random() - 0.5) * 0.4,
+        dy: (Math.random() - 0.5) * 0.4,
+        alpha: Math.random() * 0.3 + 0.1
+      });
+    }
+
+    function drawParticles() {
+      particles.forEach(p => {
+        p.x += p.dx;
+        p.y += p.dy;
+        if(p.x < 0) p.x = 1000;
+        if(p.x > 1000) p.x = 0;
+        if(p.y < 0) p.y = 600;
+        if(p.y > 600) p.y = 0;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(192, 132, 252, ${p.alpha})`;
+        ctx.fill();
+      });
+    }
+
+    // Main Render Loop
+    function animate(timestamp) {
+      if (!lastTimestamp) lastTimestamp = timestamp;
+      const deltaTime = (timestamp - lastTimestamp) / 1000;
+      lastTimestamp = timestamp;
+
+      if (isPlaying) {
+        currentTime += deltaTime;
+        if (currentTime >= totalDuration) {
+          currentTime = totalDuration;
+          isPlaying = false;
+          btnPlayPause.textContent = "Replay";
+        }
+      }
+
+      progressBar.style.width = `${(currentTime / totalDuration) * 100}%`;
+
+      let accumulatedTime = 0;
+      let activeSceneIndex = 0;
+      for (let i = 0; i < scenes.length; i++) {
+        if (currentTime <= accumulatedTime + scenes[i].duration || i === scenes.length - 1) {
+          activeSceneIndex = i;
+          break;
+        }
+        accumulatedTime += scenes[i].duration;
+      }
+
+      const activeScene = scenes[activeSceneIndex];
+      const sceneLocalTime = currentTime - accumulatedTime;
+      const sceneProgress = Math.min(Math.max(sceneLocalTime / activeScene.duration, 0), 1);
+
+      subtitleEl.textContent = activeScene.subtitle;
+      sceneIndicator.textContent = `Scene ${activeSceneIndex + 1} / ${scenes.length}`;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = COLORS.bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      drawParticles();
+      activeScene.render(sceneProgress, sceneLocalTime);
+
+      requestAnimationFrame(animate);
+    }
+
+    // --- SCENE 1: Overview Scene ---
+    function renderOverviewScene(progress) {
+      const centerX = 500;
+      const centerY = 260;
+      const scale = Math.min(progress * 1.2, 1);
+
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 150 * scale, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(192, 132, 252, 0.35)';
+      ctx.lineWidth = 6;
+      ctx.stroke();
+
+      drawNode(centerX - 150 * scale, centerY, 48, COLORS.agent, "AI Agents");
+      drawHexagon(centerX, centerY, 58 * scale, COLORS.mcp, "InteropMCP");
+      drawNode(centerX + 150 * scale, centerY, 48, COLORS.iris, "IRIS Production");
+
+      if (progress > 0.3) {
+        ctx.fillStyle = COLORS.dark;
+        ctx.font = "800 28px 'Plus Jakarta Sans'";
+        ctx.textAlign = "center";
+        ctx.fillText("InteropMCP", centerX, 440);
+        
+        ctx.font = "600 15px 'Plus Jakarta Sans'";
+        ctx.fillStyle = COLORS.textMuted;
+        ctx.fillText("Turn IRIS Productions into Native MCP Tools for AI Agents", centerX, 470);
+      }
+      ctx.textAlign = "left";
+    }
+
+    // --- SCENE 2: The Integration Problem ---
+    function renderSceneProblem(progress) {
+      drawTitleHeader("The Integration Problem", "Traditional integration vs. Native Interoperability");
+
+      drawNode(200, 300, 55, COLORS.agent, "AI Agent", "LLM Assistant");
+      drawIRISContainer(700, 300, 240, 260, "IRIS Production", ["PayLookup BS", "CustomerUpdate BS", "AccountBlock BS"]);
+
+      const barrierX = 470;
+      ctx.save();
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = COLORS.red;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(barrierX, 170);
+      ctx.lineTo(barrierX, 430);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.strokeStyle = COLORS.textMuted;
+      ctx.lineWidth = 2;
+      
+      ctx.beginPath();
+      ctx.moveTo(255, 280);
+      ctx.lineTo(340 + Math.sin(progress * 8) * 4, 250);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(255, 320);
+      ctx.lineTo(350 + Math.cos(progress * 8) * 4, 350);
+      ctx.stroke();
+
+      if (progress > 0.25) {
+        ctx.fillStyle = COLORS.red;
+        ctx.font = "700 13px 'Plus Jakarta Sans'";
+        ctx.fillText("❌ Manual REST Endpoints", 350, 200);
+        ctx.fillText("❌ Duplicate Business Logic", 340, 390);
+        ctx.fillText("❌ Lost Visual Traceability", 330, 420);
+      }
+    }
+
+    // --- SCENE 3: The Non-Invasive Gateway ---
+    function renderSceneGateway(progress) {
+      drawTitleHeader("Non-Invasive Architecture", "Automatic discovery of annotated Business Services");
+
+      drawNode(150, 300, 48, COLORS.agent, "AI Agent");
+
+      const mcpScale = Math.min(progress * 2, 1);
+      drawHexagon(470, 300, 65 * mcpScale, COLORS.mcp, "InteropMCP", "Gateway");
+
+      const containerX = 810;
+      const containerY = 300;
+      const containerW = 220;
+      const containerH = 260;
+      drawIRISContainer(containerX, containerY, containerW, containerH, "IRIS Production", ["PayLookup BS", "CustomerUpdate BS", "AccountBlock BS"]);
+
+      const itemX = containerX - containerW/2 + 15;
+
+      if (progress > 0.35) {
+        const waveProgress = (progress - 0.35) / 0.65;
+        ctx.beginPath();
+        ctx.arc(470, 300, waveProgress * 320, -Math.PI / 4, Math.PI / 4);
+        ctx.strokeStyle = `rgba(192, 132, 252, ${1 - waveProgress})`;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        if (progress > 0.6) {
+          drawGlow(itemX - 15, 235 + 21, 10, COLORS.mcp);
+          drawGlow(itemX - 15, 290 + 21, 10, COLORS.mcp);
+          drawGlow(itemX - 15, 345 + 21, 10, COLORS.mcp);
+        }
+      }
+
+      if (progress > 0.2) drawConnection(198, 300, 405, 300, COLORS.agentDark);
+      if (progress > 0.65) drawConnection(535, 300, 700, 300, COLORS.mcpDark);
+    }
+
+    // --- SCENE 4: Native Invocation & Traceability ---
+    function renderSceneExecution(progress) {
+      drawTitleHeader("Direct Invocation & Native Trace", "CreateBusinessService + ProcessInput preservation");
+
+      drawNode(130, 270, 45, COLORS.agent, "AI Agent");
+      drawHexagon(400, 270, 55, COLORS.mcp, "InteropMCP", "Invoker");
+
+      const irisBoxX = 600;
+      const irisBoxY = 150;
+      const irisBoxW = 340;
+      const irisBoxH = 240;
+
+      ctx.fillStyle = COLORS.cardBg;
+      ctx.strokeStyle = COLORS.irisDark;
+      ctx.lineWidth = 2.5;
+      roundRect(ctx, irisBoxX, irisBoxY, irisBoxW, irisBoxH, 16, true, true);
+
+      if (isLogoLoaded) {
+        ctx.drawImage(irisLogo, irisBoxX + 20, irisBoxY + 16, 26, 26);
+      }
+      ctx.fillStyle = COLORS.dark;
+      ctx.font = "700 14px 'Plus Jakarta Sans'";
+      ctx.fillText("IRIS Interoperability Engine", irisBoxX + 56, irisBoxY + 34);
+
+      const bsY = irisBoxY + 80, bpY = irisBoxY + 135, boY = irisBoxY + 190;
+      drawSubBlock(irisBoxX + 55, bsY, "BS (PayLookup)", progress > 0.35 ? COLORS.iris : '#E2E8F0');
+      drawSubBlock(irisBoxX + 170, bpY, "BP (Process)", progress > 0.55 ? COLORS.iris : '#E2E8F0');
+      drawSubBlock(irisBoxX + 285, boY, "BO (Execute)", progress > 0.75 ? COLORS.iris : '#E2E8F0');
+
+      drawArrow(irisBoxX + 100, bsY, irisBoxX + 125, bpY);
+      drawArrow(irisBoxX + 215, bpY, irisBoxX + 240, boY);
+
+      drawConnection(175, 270, 345, 270, COLORS.agentDark);
+      drawConnection(455, 270, irisBoxX, bsY, COLORS.mcpDark);
+
+      if (progress < 0.3) {
+        const p = progress / 0.3;
+        drawPulse(130 + p * 215, 270, COLORS.dark);
+      } else if (progress >= 0.3 && progress < 0.5) {
+        const p = (progress - 0.3) / 0.2;
+        drawPulse(400 + p * 200, 270 - p * 40, COLORS.mcpDark);
+      }
+
+      if (progress > 0.75) {
+        const badgeY = irisBoxY + irisBoxH + 15;
+        ctx.fillStyle = '#ECFDF5';
+        ctx.strokeStyle = COLORS.irisDark;
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, irisBoxX, badgeY, irisBoxW, 42, 10, true, true);
+
+        ctx.fillStyle = COLORS.irisDark;
+        ctx.font = "700 11.5px 'Plus Jakarta Sans'";
+        ctx.textAlign = "center";
+        ctx.fillText("✔ Ens.MessageHeader & Visual Trace Preserved", irisBoxX + irisBoxW / 2, badgeY + 25);
+        ctx.textAlign = "left";
+      }
+    }
+
+    // --- SCENE 5: Governance & Human-in-the-Loop (UPDATED WITH ALL 3 PULSES & STABLE BORDERS) ---
+    function renderSceneGovernance(progress) {
+      drawTitleHeader("Governance & Safety Controls", "Role-based approval & human-in-the-loop workflows");
+
+      const lanes = [
+        { title: "Readonly", color: COLORS.agent, y: 180, desc: "PayLookup Tool (Auto-executed)" },
+        { title: "Write", color: COLORS.iris, y: 280, desc: "CustomerUpdate Tool (Audit logged)" },
+        { title: "Critical", color: COLORS.critical, y: 390, desc: "AccountBlock Tool (Requires Approval)" }
+      ];
+
+      // Draw all 3 lane background cards with FIXED border style (no line dash or style changing)
+      lanes.forEach(lane => {
+        ctx.fillStyle = COLORS.cardBg;
+        ctx.strokeStyle = COLORS.borderColor;
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, 80, lane.y - 26, 840, 52, 12, true, true);
+
+        ctx.fillStyle = lane.color;
+        roundRect(ctx, 95, lane.y - 16, 90, 32, 8, true, false);
+        ctx.fillStyle = COLORS.dark;
+        ctx.font = "700 12px 'Plus Jakarta Sans'";
+        ctx.textAlign = "center";
+        ctx.fillText(lane.title, 140, lane.y + 4);
+
+        ctx.textAlign = "left";
+        ctx.font = "600 13px 'Plus Jakarta Sans'";
+        ctx.fillStyle = COLORS.textMuted;
+        ctx.fillText(lane.desc, 205, lane.y + 4);
+      });
+
+      // 1. Readonly Lane: Pulse moves smoothly all the way to completion without waiting
+      if (progress > 0.1) {
+        const pReadonly = Math.min((progress - 0.1) * 1.2, 1);
+        const pulseXReadonly = 390 + pReadonly * 480;
+        drawPulse(pulseXReadonly, 180, COLORS.agentDark);
+        if (pReadonly >= 0.95) {
+          ctx.fillStyle = COLORS.agentDark;
+          ctx.font = "700 12px 'Plus Jakarta Sans'";
+          ctx.fillText("✔ Direct Execution", 740, 184);
+        }
+      }
+
+      // 2. Write Lane: Pulse moves smoothly all the way to completion without waiting
+      if (progress > 0.15) {
+        const pWrite = Math.min((progress - 0.15) * 1.2, 1);
+        const pulseXWrite = 390 + pWrite * 480;
+        drawPulse(pulseXWrite, 280, COLORS.irisDark);
+        if (pWrite >= 0.95) {
+          ctx.fillStyle = COLORS.irisDark;
+          ctx.font = "700 12px 'Plus Jakarta Sans'";
+          ctx.fillText("✔ Logged & Executed", 740, 284);
+        }
+      }
+
+      // 3. Critical Lane: Pulse moves, pauses for Human Approval, then continues upon approval
+      if (progress > 0.15) {
+        const pulseXCritical = Math.min(390 + (progress - 0.15) * 600, 520);
+        drawPulse(pulseXCritical, 390, COLORS.dark);
+      }
+
+      // Human Approval Box Card (Static clean border styling)
+      if (progress > 0.35) {
+        ctx.fillStyle = COLORS.cardBg;
+        ctx.strokeStyle = COLORS.warning;
+        ctx.lineWidth = 2.5;
+        roundRect(ctx, 540, 340, 230, 105, 12, true, true);
+
+        ctx.fillStyle = COLORS.warning;
+        roundRect(ctx, 540, 340, 230, 24, 10, true, false);
+        
+        ctx.fillStyle = COLORS.dark;
+        ctx.font = "700 11px 'Plus Jakarta Sans'";
+        ctx.textAlign = "center";
+        ctx.fillText("IRIS WORKFLOW INBOX", 655, 356);
+
+        ctx.font = "600 12px 'Plus Jakarta Sans'";
+        ctx.fillStyle = COLORS.textMuted;
+        ctx.fillText("Task: Approve Account Block", 655, 382);
+
+        if (progress > 0.65) {
+          ctx.fillStyle = '#D1FAE5';
+          ctx.strokeStyle = COLORS.success;
+          ctx.lineWidth = 1.5;
+          roundRect(ctx, 580, 400, 150, 30, 20, true, true);
+
+          ctx.fillStyle = COLORS.irisDark;
+          ctx.font = "800 12px 'Plus Jakarta Sans'";
+          ctx.fillText("✓ APPROVED", 655, 420);
+
+          const contX = 770 + (progress - 0.65) * 350;
+          drawPulse(Math.min(contX, 890), 390, COLORS.success);
+        } else {
+          ctx.fillStyle = COLORS.red;
+          ctx.font = "700 11px 'Plus Jakarta Sans'";
+          ctx.fillText("⏳ Waiting for Operator...", 655, 415);
+        }
+      }
+      ctx.textAlign = "left";
+    }
+
+    // --- SCENE 6: AI HUB Framework & Container Deployment ---
+    function renderSceneAIHub(progress) {
+      drawTitleHeader("AI HUB Framework Architecture", "ObjectScript core deployed as a containerized workload");
+
+      // Container outer border: fixed solid line style
+      ctx.strokeStyle = COLORS.mcp;
+      ctx.lineWidth = 2.5;
+      roundRect(ctx, 120, 160, 760, 300, 18, false, true);
+
+      ctx.fillStyle = COLORS.dark;
+      ctx.font = "700 14px 'Plus Jakarta Sans'";
+      ctx.fillText("📦 Containerized Workload (InterSystems AI HUB Framework)", 150, 192);
+
+      const modProgress = Math.max(0, (progress - 0.25) / 0.75);
+
+      if (modProgress > 0) {
+        drawModuleCard(160, 225, 220, 205, COLORS.agent, COLORS.agentDark, "/mcp/interopmcp", "MCP Dispatcher", "Handles JSON-RPC via %AI.MCP.Service bridge.");
+        drawModuleCard(410, 225, 220, 205, COLORS.mcp, COLORS.mcpDark, "ToolSet & Schema", "Tool Catalog", "Maps Ens.Request properties to JSON schemas.");
+        drawModuleCard(660, 225, 190, 205, COLORS.iris, COLORS.irisDark, "Invoker", "Execution Engine", "Instantiates typed requests via Ens.Director.");
+      }
+
+      if (modProgress > 0.5) {
+        drawArrow(380, 325, 410, 325);
+        drawArrow(630, 325, 660, 325);
+      }
+    }
+
+    // --- SCENE 7: Live Demo Teaser / Transition Hook ---
+    function renderDemoHookScene(progress) {
+      const centerX = 500;
+      const centerY = 240;
+
+      const cardW = 540;
+      const cardH = 220;
+      ctx.fillStyle = COLORS.cardBg;
+      ctx.strokeStyle = COLORS.mcpDark;
+      ctx.lineWidth = 2.5;
+      roundRect(ctx, centerX - cardW/2, centerY - cardH/2, cardW, cardH, 20, true, true);
+
+      ctx.fillStyle = COLORS.mcp;
+      roundRect(ctx, centerX - cardW/2, centerY - cardH/2, cardW, 44, 18, true, false);
+
+      ctx.fillStyle = COLORS.dark;
+      ctx.font = "800 16px 'Plus Jakarta Sans'";
+      ctx.textAlign = "center";
+      ctx.fillText("🚀 NEXT UP: LIVE DEMONSTRATION", centerX, centerY - cardH/2 + 28);
+
+      const playPulseRadius = 26 + Math.sin(progress * 10) * 4;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY + 15, playPulseRadius, 0, Math.PI * 2);
+      ctx.fillStyle = COLORS.agent;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(centerX - 6, centerY + 5);
+      ctx.lineTo(centerX + 12, centerY + 15);
+      ctx.lineTo(centerX - 6, centerY + 25);
+      ctx.closePath();
+      ctx.fillStyle = COLORS.agentDark;
+      ctx.fill();
+
+      if (progress > 0.3) {
+        ctx.fillStyle = COLORS.dark;
+        ctx.font = "700 14px 'Plus Jakarta Sans'";
+        ctx.fillText("Calling Tools with Opencode & IRIS Workflow Approval", centerX, centerY + 70);
+
+        ctx.font = "500 12px 'Plus Jakarta Sans'";
+        ctx.fillStyle = COLORS.textMuted;
+        ctx.fillText("PayLookup • CustomerUpdate • AccountBlock • RiskCheck", centerX, centerY + 92);
+      }
+      ctx.textAlign = "left";
+    }
+
+    // --- Helper Component Functions ---
+    function drawTitleHeader(title, subtitle) {
+      ctx.fillStyle = COLORS.dark;
+      ctx.font = "800 18px 'Plus Jakarta Sans'";
+      ctx.fillText(title, 80, 95);
+
+      ctx.fillStyle = COLORS.textMuted;
+      ctx.font = "500 13px 'Plus Jakarta Sans'";
+      ctx.fillText(subtitle, 80, 117);
+    }
+
+    function drawNode(x, y, radius, color, label, sublabel) {
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = COLORS.cardBg;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.fillStyle = COLORS.dark;
+      ctx.font = "700 13px 'Plus Jakarta Sans'";
+      ctx.textAlign = "center";
+      ctx.fillText(label, x, sublabel ? y - 3 : y + 4);
+      if (sublabel) {
+        ctx.font = "500 11px 'Plus Jakarta Sans'";
+        ctx.fillStyle = COLORS.textMuted;
+        ctx.fillText(sublabel, x, y + 14);
+      }
+      ctx.textAlign = "left";
+    }
+
+    function drawHexagon(x, y, radius, color, label, sublabel) {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i;
+        const hx = x + radius * Math.cos(angle);
+        const hy = y + radius * Math.sin(angle);
+        if (i === 0) ctx.moveTo(hx, hy);
+        else ctx.lineTo(hx, hy);
+      }
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = COLORS.cardBg;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      if (radius > 30) {
+        ctx.fillStyle = COLORS.dark;
+        ctx.font = "700 13px 'Plus Jakarta Sans'";
+        ctx.textAlign = "center";
+        ctx.fillText(label, x, sublabel ? y - 3 : y + 4);
+        if (sublabel) {
+          ctx.font = "500 10px 'Plus Jakarta Sans'";
+          ctx.fillStyle = COLORS.textMuted;
+          ctx.fillText(sublabel, x, y + 13);
+        }
+        ctx.textAlign = "left";
+      }
+    }
+
+    function drawIRISContainer(x, y, w, h, title, items) {
+      ctx.fillStyle = COLORS.cardBg;
+      ctx.strokeStyle = COLORS.irisDark;
+      ctx.lineWidth = 2.5;
+      roundRect(ctx, x - w/2, y - h/2, w, h, 16, true, true);
+
+      if (isLogoLoaded) {
+        ctx.drawImage(irisLogo, x - w/2 + 15, y - h/2 + 15, 24, 24);
+      }
+      ctx.fillStyle = COLORS.dark;
+      ctx.font = "700 14px 'Plus Jakarta Sans'";
+      ctx.textAlign = "center";
+      ctx.fillText(title, x + 10, y - h/2 + 32);
+
+      items.forEach((item, idx) => {
+        const itemY = y - h/2 + 65 + idx * 55;
+        ctx.fillStyle = '#ECFDF5';
+        ctx.strokeStyle = COLORS.iris;
+        ctx.lineWidth = 1;
+        roundRect(ctx, x - w/2 + 15, itemY, w - 30, 42, 8, true, true);
+
+        ctx.fillStyle = COLORS.irisDark;
+        ctx.font = "600 12px 'Plus Jakarta Sans'";
+        ctx.fillText(item, x, itemY + 25);
+      });
+      ctx.textAlign = "left";
+    }
+
+    function drawModuleCard(x, y, w, h, headerBg, textColor, title, subTitle, desc) {
+      ctx.fillStyle = COLORS.cardBg;
+      ctx.strokeStyle = COLORS.borderColor;
+      ctx.lineWidth = 2;
+      roundRect(ctx, x, y, w, h, 14, true, true);
+
+      ctx.fillStyle = headerBg;
+      roundRect(ctx, x, y, w, 44, 12, true, false);
+
+      ctx.fillStyle = COLORS.dark;
+      ctx.font = "700 13px 'Plus Jakarta Sans'";
+      ctx.textAlign = "center";
+      ctx.fillText(title, x + w/2, y + 27);
+
+      ctx.font = "700 12px 'Plus Jakarta Sans'";
+      ctx.fillStyle = textColor;
+      ctx.fillText(subTitle, x + w/2, y + 75);
+
+      ctx.font = "500 11px 'Plus Jakarta Sans'";
+      ctx.fillStyle = COLORS.textMuted;
+      wrapText(ctx, desc, x + w/2, y + 105, w - 24, 16);
+
+      ctx.textAlign = "left";
+    }
+
+    function drawSubBlock(x, y, text, color) {
+      ctx.fillStyle = color;
+      roundRect(ctx, x - 42, y - 20, 84, 40, 8, true, false);
+      ctx.fillStyle = COLORS.dark;
+      ctx.font = "700 10px 'Plus Jakarta Sans'";
+      ctx.textAlign = "center";
+      ctx.fillText(text, x, y + 4);
+      ctx.textAlign = "left";
+    }
+
+    function drawConnection(x1, y1, x2, y2, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawPulse(x, y, color) {
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = COLORS.cardBg;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function drawGlow(x, y, r, color) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawArrow(x1, y1, x2, y2) {
+      ctx.strokeStyle = COLORS.dark;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+
+    function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+      if (fill) ctx.fill();
+      if (stroke) ctx.stroke();
+    }
+
+    function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+      const words = text.split(' ');
+      let line = '';
+      let testY = y;
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        const testWidth = metrics.width;
+        if (testWidth > maxWidth && n > 0) {
+          ctx.fillText(line, x, testY);
+          line = words[n] + ' ';
+          testY += lineHeight;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line, x, testY);
+    }
+
+    // Controls listeners
+    btnPlayPause.addEventListener('click', () => {
+      if (currentTime >= totalDuration) {
+        currentTime = 0;
+        isPlaying = true;
+        btnPlayPause.textContent = "Pause";
+      } else {
+        isPlaying = !isPlaying;
+        btnPlayPause.textContent = isPlaying ? "Pause" : "Play";
+      }
+    });
+
+    btnRestart.addEventListener('click', () => {
+      currentTime = 0;
+      isPlaying = true;
+      btnPlayPause.textContent = "Pause";
+    });
+
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>

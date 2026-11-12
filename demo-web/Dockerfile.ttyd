@@ -1,0 +1,61 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# Instalar dependências do sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar ttyd (binário estático)
+RUN curl -fsSL https://github.com/tsl0922/ttyd/releases/download/1.7.3/ttyd.x86_64 -o /usr/local/bin/ttyd \
+    && chmod +x /usr/local/bin/ttyd \
+    && ttyd --version
+
+# Instalar Bun (necessário pelo binário do opencode)
+RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
+ENV PATH="/root/.bun/bin:${PATH}"
+
+# Baixar o binário oficial do opencode (GitHub Releases) - mesma versão do stack demo-web.
+# O binário (~185MB) não é versionado no Git: o GitHub rejeita blobs >100MB.
+ARG OPENCODE_VERSION=1.18.35
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "${arch}" in \
+      amd64) \
+        if grep -qwi avx2 /proc/cpuinfo; then \
+          asset="opencode-linux-x64.tar.gz"; \
+          sha="c8f888b451f5494a18f858fffb0e0b68f4e4baa9c241761c5f206884f0fa640d"; \
+        else \
+          asset="opencode-linux-x64-baseline.tar.gz"; \
+          sha="90c97d4a24d36437bce36f27195c9cd2e0b70ed037a04d1c6a6740eb246c2a73"; \
+        fi ;; \
+      arm64) \
+        asset="opencode-linux-arm64.tar.gz"; \
+        sha="f7f2ba59ee8aa94d388f9696575a32d20e71c2ee48def9f80fc693a60fec6c72" ;; \
+      *) echo "arquitetura não suportada: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/opencode.tar.gz "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/${asset}"; \
+    echo "${sha}  /tmp/opencode.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \
+    chmod 755 /usr/local/bin/opencode; \
+    rm -f /tmp/opencode.tar.gz
+
+# Copiar config do opencode do demo-web (aponta p/ http://iris:8080/mcp)
+COPY opencode.json /app/opencode.json
+
+# Criar diretório para config (restricted_cnpjs.txt montado via volume no docker-compose)
+RUN mkdir -p /app/config
+
+# Copiar entrypoint e wrapper
+COPY entrypoint-ttyd.sh /app/entrypoint-ttyd.sh
+RUN chmod +x /app/entrypoint-ttyd.sh
+COPY opencode-wrapper-ttyd.sh /app/opencode-wrapper-ttyd.sh
+RUN chmod +x /app/opencode-wrapper-ttyd.sh
+
+# Porta do ttyd (apenas localhost via docker-compose)
+EXPOSE 7681
+
+ENTRYPOINT ["/app/entrypoint-ttyd.sh"]
