@@ -99,6 +99,22 @@ For a clean state, rebuild: `docker compose up -d --build`.
 Production registration uses the **full class name** (`br.musketeers.InteropMCP.Demo.Production`), and the
 production XData block **must** be named `ProductionDefinition` (not `Production`).
 
+### `Ens.ErrProductionMismatchInDeferredResponse` when approving a workflow task via the User Portal
+
+**Symptom:** Clicking **Approve** / **Reject** on a task in the IRIS User Portal raises `Ens.ErrProductionMismatchInDeferredResponse: Production name mismatch while sending deferred response`. The approval stays `pending-approval` forever.
+
+**Diagnosis:** The task was created outside a production message flow (by `WorkflowBridge.CreateTask`), so its deferred response token is empty. The portal's `Engine.CompleteTask` → `SendDeferredResponse` parses the empty token and the production name comparison fails.
+
+**Fix:**
+- **New tasks (created by current `WorkflowBridge`):** Use `br.musketeers.InteropMCP.WorkflowTaskResponse` which overrides `OnAction` to close the task locally — no deferred response. Portal approval works. If it still fails, verify the task's class is `WorkflowTaskResponse` (not plain `EnsLib.Workflow.TaskResponse`).
+- **Legacy tasks (created before the fix):** The task is a plain `EnsLib.Workflow.TaskResponse`. Portal approval will always fail. Use the terminal fallback:
+  ```objectscript
+  Do ##class(br.musketeers.InteropMCP.Approvals).Approve("<ApprovalId>", "operator1")
+  Do ##class(br.musketeers.InteropMCP.Approvals).Reject("<ApprovalId>", "operator1", "reason")
+  ```
+  This path bypasses `SendDeferredResponse` entirely.
+- **Reference:** `docs/ERR_PRODUCTION_MISMATCH_DEFERRED_RESPONSE.md` (original analysis) and `docs/ERR_PRODUCTION_MISMATCH_DEFERRED_RESPONSE_ANALYSIS.md` (corrected diagnosis + implemented fix).
+
 ## 2. UDL / ObjectScript dialect rules (IRIS 2026.3 AI build)
 
 Rules learned the hard way — apply to all gateway code:
