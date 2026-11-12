@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Tools to record the InteropMCP tutorial video (intro animation + browser automation + ffmpeg).",
   "scripts": {
-    "record": "node record-video.mjs"
+    "record": "node record-video.mjs",
+    "screenshots": "node record-screenshots.mjs"
   },
   "dependencies": {
     "playwright": "1.65.0"

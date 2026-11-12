@@ -89,13 +89,14 @@ Property %DeferredResponse As %Boolean [ InitialExpression = 1 ];
 4. Verify invocation transitions from `pending-approval` to `completed`
 
 ## Current Workaround (Implemented in Application Code)
-Since system classes cannot be modified in this instance, the application implements a workaround in `br.musketeers.InteropMCP.WorkflowBridge`:
+Since system classes cannot be modified in this instance, the application implements a fix in `br.musketeers.InteropMCP.WorkflowBridge` and a new subclass `br.musketeers.InteropMCP.WorkflowTaskResponse`:
 
-1. **Custom `CompleteTask`** - Bypasses `SendDeferredResponse` entirely by directly updating task status and calling `Approvals.Approve`/`Reject`
-2. **ResponseToken override** - Sets correct production name in `ResponseToken` after task distribution
-3. **Direct approval API** - `Approvals.Approve` bypasses workflow engine entirely and works reliably
+1. **`WorkflowTaskResponse` subclass** — Overrides `OnAction` to record the decision in `Approvals` and close the task locally, replicating the bookkeeping of `Engine.CompleteTask` **without** calling `Ens.Host.SendDeferredResponse`. The portal dispatches to this `OnAction` polymorphically, so **portal approval works for tasks created via this subclass**.
+2. **`WorkflowBridge.CreateTask` rewritten** — Creates exactly one `TaskRequest` + one `WorkflowTaskResponse`; sets `%TaskHandler` to the subclass; distributes via `Engine.SendTaskToAll`; stores the correct `TaskId` on the approval. **No token is forged** — the previous approach of hand-building a `ResponseToken` was a defect that could hijack an unrelated `Ens.MessageHeader` (see `docs/ERR_PRODUCTION_MISMATCH_DEFERRED_RESPONSE_ANALYSIS.md` §3.3).
+3. **`WorkflowBridge.CompleteTask` rewritten** — For tasks of the new subclass, delegates to the same `OnAction` the portal uses; for legacy tasks (plain `EnsLib.Workflow.TaskResponse`), keeps a local completion path that avoids `SendDeferredResponse`.
+4. **Direct approval API** — `Approvals.Approve`/`Reject` bypass the workflow engine entirely and work reliably (terminal fallback / headless operator).
 
-**Limitation:** Portal approval still fails due to system class behavior. Use `Approvals.Approve` directly for reliable approvals.
+**Status:** Portal approval **now works** for tasks created by the current `WorkflowBridge` (using `WorkflowTaskResponse`). Legacy tasks (created before this fix) still fail via portal with `Ens.ErrProductionMismatchInDeferredResponse`; use the terminal path `Approvals.Approve`/`Reject` for those.
 
 ## Files to Submit to InterSystems
 - Modified `Ens.Host.cls` (SendDeferredResponse fix)

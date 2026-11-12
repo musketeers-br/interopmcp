@@ -210,8 +210,8 @@ Authentication opens the door; each tool's classification decides what happens n
 | Classification | Behavior | Demo example |
 |---------------|----------|--------------|
 | `readonly` | Immediate execution, no extra authorization | `PayLookupBS` — check payment |
-| `write` | Authorized caller, decision logged | `CustomerUpdateBS` — update address |
-| `critical` | No execution: creates `pending-approval` invocation + approval request; runs only after `Approvals.Approve(id, approver)` | `RiskCheckBS` — risk assessment |
+| `write` | Authorized caller, decision logged | `CustomerUpdateBS` — update address; `RiskCheckBS` — risk assessment |
+| `critical` | No execution: creates `pending-approval` invocation + approval request; runs only after an operator decides via the IRIS User Portal Workflow inbox (**Accept** → **Approve**/**Reject**) or via terminal `Approvals.Approve`/`Reject` | `AccountBlockBS` — account inactivation |
 
 ### Validate with Opencode
 
@@ -219,25 +219,53 @@ Authentication opens the door; each tool's classification decides what happens n
 
 `Use the PayLookup tool with OrderId 88201 and CustomerId C-1`
 
-Expected: `isError:false`, text `"1"` (completed)
+Expected: `isError:false`, content type text with a JSON object:
+```json
+{
+  "_status": "ok",
+  "invocationId": "<INVOCATION_ID>",
+  "message": "Tool executed successfully."
+}
+```
 
 `write` — executes for authorized caller
 
 `Use the CustomerUpdate tool with CustomerId 1 and NewAddress "Av. Paulista, 1000"`
 
-Expected: `isError:false`, text `"1"` (completed)
+Expected: `isError:false`, content type text with a JSON object (same structure as above).
 
 `critical` — held for approval, Business Service never runs on the agent's call
 
-`Use the RiskCheck tool with Cnpj 12.345.678/0001-90 and Scope full`
+`Use the AccountBlock tool with CustomerId 1, BlockType "permanent", and Reason "Restricted CNPJ detected"`
 
-Expected: `isError:false`, text `"1"`, but status is `pending-approval` (not executed)
+Expected: `isError:false`, content type text with a JSON object:
+```json
+{
+  "_status": "held",
+  "invocationId": "<INVOCATION_ID>",
+  "approvalId": "<APPROVAL_ID>",
+  "message": "Critical call held for approval. Use GetInvocationStatus with invocationId to check progress."
+}
+```
 
 ![Guardrails via Opencode – readonly/write execute, critical held for approval](img/article-2-step-04-opencode-guardrails.png)
 
 ## 6. Human-in-the-loop approval for critical tools
 
-Critical calls are parked in `pending-approval`. An operator lists pending approvals and approves or rejects:
+Critical calls are parked in `pending-approval`. The operator decides in the **IRIS User Portal Workflow inbox** — this is the primary UI:
+
+1. Open the DeepSee User Portal Workflow:
+   ```
+   http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen
+   ```
+2. Login as a user with the `Operators` role (e.g. `_SYSTEM`/`SYS`).
+3. In the inbox, select the task with Subject `Approval: <ApprovalId>` (status `Unassigned`).
+4. Click **Accept** to take ownership — the portal then shows **Relinquish** / **Approve** / **Reject**.
+5. Click **Approve** or **Reject** and confirm.
+
+The portal dispatches `EnsLib.Workflow.Engine.%ProcessAction` → `TaskResponse.OnAction` on the stored task class. InteropMCP provides `br.musketeers.InteropMCP.WorkflowTaskResponse`, whose `OnAction` records the decision in `Approvals` and **closes the task locally — no deferred response is needed** because the approval request was created outside a production message flow. This avoids `Ens.ErrProductionMismatchInDeferredResponse` (see `docs/ERR_PRODUCTION_MISMATCH_DEFERRED_RESPONSE.md` and `docs/ERR_PRODUCTION_MISMATCH_DEFERRED_RESPONSE_ANALYSIS.md`).
+
+**Terminal fallback (headless operator).** If the operator works only through the terminal, the same decision can be recorded without the portal — this path also bypasses `Ens.Host.SendDeferredResponse` entirely:
 
 ```bash
 docker exec -it ai-hub-dev-template-iris-1 iris session iris -U IRISAPP
@@ -281,7 +309,7 @@ Example row from a validated call:
 
 ### Validate: query pending approvals via Opencode
 
-`Check the status of risk check "<InvocationId>"`
+`Check the status of account block "<InvocationId>"`
 
 ![Gateway invocations and approvals (SQL audit)](img/article-2-step-06-approval-opencode.png)
 

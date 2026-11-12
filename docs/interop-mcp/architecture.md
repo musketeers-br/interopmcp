@@ -22,7 +22,7 @@ flowchart LR
         G[br.musketeers.InteropMCP.Guardrails]
         H[br.musketeers.InteropMCP.Invoker]
         subgraph Demo production
-            I[CustomerUpdateBS / PayLookupBS /<br/>RiskCheckBS / BatchRunBS]
+            I[CustomerUpdateBS / PayLookupBS /<br/>RiskCheckBS / AccountBlockBS / BatchRunBS]
             J[br.musketeers.InteropMCP.Demo.AuditProcess - BP]
             K[br.musketeers.InteropMCP.Demo.AuditOperation - BO]
         end
@@ -32,6 +32,7 @@ flowchart LR
         Q[(^InteropMCP.LogD)]
         R[(^InteropMCP.Demo.AuditD)]
         W[br.musketeers.InteropMCP.WorkflowBridge]
+        X[br.musketeers.InteropMCP.WorkflowTaskResponse]
     end
     A -->|JSON-RPC| B
     B -->|superserver 1972| C
@@ -41,7 +42,8 @@ flowchart LR
     G -->|readonly / write| H
     G -->|critical| P
     G -->|create task| W
-    W -->|complete task| P
+    W -->|create WorkflowTaskResponse| X
+    X -->|complete locally (no deferred response)| P
     P -->|approved| H
     H -->|CreateBusinessService + ProcessInput| I
     I -->|SendRequestSync| J -->|SendRequestSync| K
@@ -59,7 +61,8 @@ flowchart LR
 | MCP endpoint | Web application `/mcp/interopmcp` (Type 18), `br.musketeers.InteropMCP.MCPService` | Dispatches MCP traffic into the AI HUB service bound to `SPECIFICATION = "br.musketeers.InteropMCP.ToolSet"` |
 | Tool catalog | `br.musketeers.InteropMCP.ToolSet` (static XData) + `br.musketeers.InteropMCP.GeneratedTools` (code-generated) + `br.musketeers.InteropMCP.InvocationStatusTools` | Declares the exposed tools: one generated ClassMethod per Business Service plus the status query |
 | Guardrails | `br.musketeers.InteropMCP.Guardrails` | Enforces the per-tool security classification on a single audited code path |
-| Workflow Bridge | `br.musketeers.InteropMCP.WorkflowBridge` | Links pending approvals to native IRIS Workflow tasks (`Ens.Workflow.Task`) surfaced in the Management Portal; completes tasks and propagates decisions back to `Approvals` |
+| Workflow Bridge | `br.musketeers.InteropMCP.WorkflowBridge` | Links pending approvals to native IRIS Workflow tasks (`Ens.Workflow.Task`) surfaced in the Management Portal; creates `WorkflowTaskResponse` tasks that complete locally (no deferred response) |
+| Task Completion | `br.musketeers.InteropMCP.WorkflowTaskResponse` | Subclass of `EnsLib.Workflow.TaskResponse`; overrides `OnAction` to record decision in `Approvals` and close task locally — avoids `Ens.ErrProductionMismatchInDeferredResponse` |
 | Invocation | `br.musketeers.InteropMCP.Invoker` | Resolves the tool definition, instantiates the typed request, fires the Business Service |
 | Registry | `br.musketeers.InteropMCP.Registry` | Builds the catalog from annotated Business Services, detects duplicate tool names, generates and compiles the tools class |
 | Schema | `br.musketeers.InteropMCP.SchemaMapper` | Maps `Ens.Request` property metadata to tool input schemas |
@@ -86,10 +89,9 @@ For a call to `mcp_interopmcp_CustomerUpdate` with
    - `write` → parameter validation + caller authorization, logged, `proceed = 1`;
    - `critical` → creates an `br.musketeers.InteropMCP.Invocations` row (`pending-approval`) and an
      `br.musketeers.InteropMCP.Approvals` request, plus an `Ens.Workflow.Task` via
-     `br.musketeers.InteropMCP.WorkflowBridge` for Management Portal visibility, returns
+     `br.musketeers.InteropMCP.WorkflowBridge` (which creates a `br.musketeers.InteropMCP.WorkflowTaskResponse` task) for Management Portal visibility, returns
      **without executing**. The invocation only reaches the Business Service after
-     `br.musketeers.InteropMCP.Approvals.Approve(id, approver)` or after the linked
-     Workflow task is completed through the portal.
+     an operator decides in the IRIS User Portal Workflow inbox (**Accept** → **Approve**/**Reject**) — the `WorkflowTaskResponse.OnAction` records the decision in `Approvals` and closes the task locally (no deferred response) — or after terminal `Approvals.Approve(id, approver)`.
 5. **Invocation.** `br.musketeers.InteropMCP.Invoker.Invoke(...)`:
    - records the invocation in `br.musketeers.InteropMCP.Invocations` (`received`);
    - instantiates the typed request via `$CLASSMETHOD(requestClass, "%New")` and fills

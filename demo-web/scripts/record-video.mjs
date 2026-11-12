@@ -10,7 +10,11 @@
  *   - Legendas queimadas durante a gravação (div#caption, fundo a 25%).
  *   - Autenticação do portal feita em um contexto separado (não gravado) e os
  *     cookies copiados para o contexto gravado (evita "flash" de login).
- *   - Aprovacao (Step 7b) via docker exec real, exibida num painel Operator Console.
+ *   - Aprovacao/rejeicao CRITICA feita no proprio IRIS User Portal (Workflow):
+ *     a task e selecionada na inbox, o operador assume a-posse (Accept) e
+ *     decide (Approve/Reject) — o ZEN abre um confirm(), tratado via page.on('dialog').
+ *   - Consultas reais ao IRIS via "docker exec ... iris session" para casar a
+ *     aprovacao pela InvocationId e conferir o status da invocacao.
  *
  * Produz:
  *   output/tutorial-raw.mp4  — video bruto com legendas queimadas (sem mixagem)
@@ -184,6 +188,21 @@ function extractInvocationId(text) {
   return all.length ? all[all.length - 1][0] : null;
 }
 
+// Extrai um GUID pelo rotulo ("Invocation ID: <guid>"). O TUI do opencode
+// mostra o Invocation ID ANTES do Approval ID, entao pegar "o ultimo GUID"
+// devolve o ID errado — sempre extrair por rotulo. O terminal estreito pode
+// QUEBRAR o GUID em duas linhas, entao o texto tambem e lido "achatado"
+// (sem quebras de linha) antes de desistir.
+function extractLabeledGuid(text, label) {
+  const re = new RegExp(label + '[^0-9A-F]{0,40}(' + GUID_RE.source + ')', 'gi');
+  const raw = String(text);
+  let all = [...raw.matchAll(re)];
+  if (all.length) return all[all.length - 1][1];
+  const flat = raw.replace(/\n+/g, '');
+  all = [...flat.matchAll(re)];
+  return all.length ? all[all.length - 1][1] : null;
+}
+
 // Espera o agente terminar (buffer do xterm fica quieto) antes de trocar de view.
 async function waitTerminalIdle(page, opts = {}) {
   const minMs = opts.minMs ?? 8000;
@@ -278,6 +297,63 @@ async function loadPortal(page, url) {
   await nudgeFrame(page, 'portal');
 }
 
+// ---------- IRIS User Portal (Workflow) — interacao real no iframe ----------
+
+// O ZEN abre um confirm() antes de executar a acao do botao; sem handler o
+// Playwright dispensa o dialogo e a acao nunca acontece.
+function installDialogHandler(page) {
+  page.on('dialog', (d) => d.accept().catch(() => {}));
+}
+
+function portalFrame(page) {
+  return page.frame({ name: 'portal' });
+}
+
+// Seleciona a task na inbox pelo ApprovalId (o Subject da task e
+// "Approval: <ApprovalId>") e espera o painel de detalhes carregar.
+async function selectPortalTask(page, approvalId) {
+  const frame = portalFrame(page);
+  if (!frame) throw new Error('iframe do portal nao encontrado');
+  const row = frame.locator('#folderList tr', { hasText: approvalId }).first();
+  await row.waitFor({ state: 'visible', timeout: 60000 });
+  await row.click();
+  await frame.waitForLoadState('load', { timeout: 30000 }).catch(() => {});
+  await frame
+    .locator('input[name="BTN_$Accept"], input[name="BTN_Approve"], input[name="BTN_Reject"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 45000 })
+    .catch(() => {});
+  await sleep(1500);
+  log('Task selecionada no User Portal:', approvalId);
+}
+
+// Clica em um botao de acao do painel de detalhes:
+// BTN_$Accept (assumir posse), BTN_Approve, BTN_Reject.
+async function clickPortalAction(page, actionName) {
+  const frame = portalFrame(page);
+  if (!frame) throw new Error('iframe do portal nao encontrado');
+  const btn = frame.locator(`input[name="BTN_${actionName}"]`).first();
+  await btn.waitFor({ state: 'visible', timeout: 45000 });
+  await btn.click();
+  // O ZEN faz submit do form e navega dentro do iframe.
+  await sleep(2500);
+  await frame.waitForLoadState('load', { timeout: 45000 }).catch(() => {});
+  await sleep(1800);
+  log('Acao no User Portal:', actionName);
+}
+
+// Espera a task sumir da inbox (decisao concluida).
+async function waitPortalTaskGone(page, approvalId) {
+  const frame = portalFrame(page);
+  if (!frame) return;
+  await frame
+    .waitForFunction((id) => !(document.body.innerText || '').includes(id), approvalId, {
+      timeout: 60000,
+    })
+    .catch(() => {});
+  await sleep(1200);
+}
+
 async function setCaption(page, ctx, text) {
   const now = Date.now() - ctx.t0;
   // fecha a legenda anterior
@@ -291,102 +367,178 @@ async function setCaption(page, ctx, text) {
   log('Legenda:', text);
 }
 
-// ---------- Aprovacao via docker exec (real) ----------
+// ---------- Consultas ao IRIS (via docker exec) + decisao no User Portal ----------
+//
+// ATENCAO: o "iris session" executa linha a linha e NAO aceita blocos { }.
+// Todo script abaixo usa apenas comandos de uma linha (sem While/For/If com
+// bloco). Lacos ficam do lado do JavaScript.
 
-async function runApproval(page, invocationId) {
-  const esc = (s) => String(s).replace(/"/g, '\\"');
-  const findScript = (invId) =>
-    'Set invId = "' + esc(invId) + '"\n' +
-    'Set stmt = ##class(%SQL.Statement).%New()\n' +
-    'Set sc = stmt.%Prepare("SELECT ApprovalId FROM br_musketeers_InteropMCP.Approvals WHERE InvocationId = ? AND Decision = \'pending\'")\n' +
-    'Set rs = stmt.%Execute(invId)\n' +
-    'Set found = ""\n' +
-    'If rs.%Next() Set found = rs.%Get("ApprovalId")\n' +
-    'Write found, !\n' +
-    'Halt\n';
-  const statusScript = (invId) =>
-    'Set invId = "' + esc(invId) + '"\n' +
-    'Set stmt = ##class(%SQL.Statement).%New()\n' +
-    'Set sc = stmt.%Prepare("SELECT Status FROM br_musketeers_InteropMCP.Invocations WHERE InvocationId = ?")\n' +
-    'Set rs = stmt.%Execute(invId)\n' +
-    'Set st = ""\n' +
-    'If rs.%Next() Set st = rs.%Get("Status")\n' +
-    'Write st, !\n' +
-    'Halt\n';
-  const approveScript = (id) =>
-    'Do ##class(br.musketeers.InteropMCP.Approvals).Approve("' + esc(id) + '", "operator1")\n' +
-    'Write "APPROVED", !\n' +
-    'Halt\n';
-  const runIris = (script) => {
-    try {
-      return execFileSync('docker', [
-        'exec', '-i', CONTAINER, 'iris', 'session', 'iris', '-U', 'IRISAPP',
-      ], { input: script, encoding: 'utf8', timeout: 60000 });
-    } catch (e) {
-      return e.stdout ? e.stdout.toString() : String(e);
-    }
-  };
-  const GUID_LINE = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
-  const parseGuid = (out) => {
-    for (const l of String(out).split('\n').map((x) => x.trim())) {
-      if (GUID_LINE.test(l)) return l;
-    }
-    return '';
-  };
-  const STATUSES = ['pending-approval', 'executing', 'completed', 'failed', 'rejected', 'received'];
-  const parseStatus = (out) => {
-    for (const l of String(out).split('\n').map((x) => x.trim())) {
-      if (STATUSES.includes(l)) return l;
-    }
-    return '';
-  };
-  const appendConsole = (cmd, out) => page.evaluate(
-    ({ c, o }) => {
-      window.__stage.consoleAppendCmd(c);
-      window.__stage.consoleAppendOut(o);
-    },
-    { c: cmd, o: out || '(sem output)' }
-  );
+// Aprovacao pendente mais recente (a fila do video tem uma por vez).
+// Retorna "<ApprovalId>|<InvocationId>".
+const FIND_PENDING_SCRIPT = `
+Set stmt = ##class(%SQL.Statement).%New()
+Set sc = stmt.%Prepare("SELECT TOP 1 ApprovalId, InvocationId FROM br_musketeers_InteropMCP.Approvals WHERE Decision = 'pending' ORDER BY ID DESC")
+Set rs = stmt.%Execute()
+Set o = ""
+If rs.%Next() Set o = rs.%Get("ApprovalId") _ "|" _ rs.%Get("InvocationId")
+Write o, !
+Halt
+`;
 
-  if (!invocationId) {
-    log('Aprovacao: invocationId ausente — pulando.');
-    return;
-  }
+// Aprovacao pendente mais antiga (usada na limpeza, uma por vez).
+const FIND_OLDEST_PENDING_SCRIPT = `
+Set stmt = ##class(%SQL.Statement).%New()
+Set sc = stmt.%Prepare("SELECT TOP 1 ApprovalId FROM br_musketeers_InteropMCP.Approvals WHERE Decision = 'pending' ORDER BY ID ASC")
+Set rs = stmt.%Execute()
+Set found = ""
+If rs.%Next() Set found = rs.%Get("ApprovalId")
+Write found, !
+Halt
+`;
 
-  log('Aprovacao: buscando aprovacao pendente da invocacao', invocationId);
-  const start = Date.now();
-  const POLL_MS = 2000;
-  const MAX_MS = 60000;
-  let approvalId = '';
-  let lastFind = '';
-  while (Date.now() - start < MAX_MS && !approvalId) {
-    lastFind = runIris(findScript(invocationId));
-    approvalId = parseGuid(lastFind);
-    if (!approvalId) await new Promise((r) => setTimeout(r, POLL_MS));
-  }
-  await appendConsole(findScript(invocationId), lastFind);
-  if (!approvalId) {
-    await page.evaluate(
-      () => window.__stage.consoleAppendOut('Nenhuma aprovacao pendente para esta invocacao (timeout).')
+// Rejeita uma aprovacao pendente (usado so na limpeza).
+const REJECT_SCRIPT = (id) => `
+Do ##class(br.musketeers.InteropMCP.Approvals).Reject("${id}", "video-cleanup", "Stale approval rejected by record-video.mjs cleanup.")
+Write "rejected", !
+Halt
+`;
+
+// Remove da inbox do Workflow as tasks que ficaram em aberto.
+const CLEAR_WORKLIST_SCRIPT = `
+Set stmt = ##class(%SQL.Statement).%New()
+Set sc = stmt.%Prepare("DELETE FROM EnsLib_Workflow.Worklist WHERE Task IN (SELECT ID FROM EnsLib_Workflow.TaskResponse WHERE TaskStatus_IsComplete = 0)")
+Set removed = stmt.%Execute()
+Write "worklist_removed=", removed, !
+Halt
+`;
+
+const GUID_LINE = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
+const INVOCATION_STATUSES = [
+  'pending-approval',
+  'executing',
+  'completed',
+  'failed',
+  'rejected',
+  'received',
+];
+
+function irisSession(script) {
+  try {
+    return execFileSync(
+      'docker',
+      ['exec', '-i', CONTAINER, 'iris', 'session', 'iris', '-U', 'IRISAPP'],
+      { input: script, encoding: 'utf8', timeout: 90000 }
     );
-    log('Nenhuma aprovacao pendente encontrada para', invocationId);
-    return;
+  } catch (e) {
+    return e.stdout ? e.stdout.toString() : String(e);
   }
+}
 
-  const apprOut = runIris(approveScript(approvalId));
-  await appendConsole(approveScript(approvalId), apprOut);
-  log('Aprovacao concluida:', approvalId, '-> invocacao', invocationId);
+// Aprovacao pendente casada pela InvocationId (evita pegar aprovacao antiga).
+const FIND_APPROVAL_SCRIPT = (invId) => `
+Set invId = "${invId}"
+Set stmt = ##class(%SQL.Statement).%New()
+Set sc = stmt.%Prepare("SELECT ApprovalId FROM br_musketeers_InteropMCP.Approvals WHERE InvocationId = ? AND Decision = 'pending'")
+Set rs = stmt.%Execute(invId)
+Set found = ""
+If rs.%Next() Set found = rs.%Get("ApprovalId")
+Write found, !
+Halt
+`;
+
+const STATUS_SCRIPT = (invId) => `
+Set invId = "${invId}"
+Set stmt = ##class(%SQL.Statement).%New()
+Set sc = stmt.%Prepare("SELECT Status FROM br_musketeers_InteropMCP.Invocations WHERE InvocationId = ?")
+Set rs = stmt.%Execute(invId)
+Set st = ""
+If rs.%Next() Set st = rs.%Get("Status")
+Write st, !
+Halt
+`;
+
+// No output do "iris session" a linha echoed do comando tambem contem o GUID:
+// so aceita uma linha que seja exatamente o GUID.
+function parseGuidLine(out) {
+  for (const l of String(out).split('\n').map((x) => x.trim())) {
+    if (GUID_LINE.test(l)) return l;
+  }
+  return '';
+}
+
+function parseStatusLine(out) {
+  for (const l of String(out).split('\n').map((x) => x.trim())) {
+    if (INVOCATION_STATUSES.includes(l)) return l;
+  }
+  return '';
+}
+
+// Espera a aprovacao pendente da invocacao aparecer no IRIS.
+async function findPendingApprovalId(invocationId) {
+  for (let i = 0; i < 30; i++) {
+    const id = parseGuidLine(irisSession(FIND_APPROVAL_SCRIPT(invocationId)));
+    if (id) return id;
+    await sleep(2000);
+  }
+  return '';
+}
+
+// Aprovacao pendente mais recente no IRIS: <ApprovalId>|<InvocationId>.
+// Fonte AUTORITATIVA do invocationId — o texto do TUI pode ter o GUID
+// quebrado de linha, o que quebra a extracao por rotulo.
+function findLatestPendingApproval() {
+  const out = irisSession(FIND_PENDING_SCRIPT);
+  const m = String(out).match(
+    /([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})\|([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})/i
+  );
+  return m ? { approvalId: m[1], invocationId: m[2] } : null;
+}
+
+// Limpa o estado de uma execucao anterior: rejeita as aprovacoes pendentes
+// (uma por vez, sem blocos no "iris session") e esvazia a inbox do Workflow.
+function cleanupState() {
+  let rejected = 0;
+  for (let i = 0; i < 20; i++) {
+    const id = parseGuidLine(irisSession(FIND_OLDEST_PENDING_SCRIPT));
+    if (!id) break;
+    irisSession(REJECT_SCRIPT(id));
+    rejected++;
+  }
+  const wl = irisSession(CLEAR_WORKLIST_SCRIPT);
+  const m = String(wl).match(/worklist_removed=\d+/i);
+  return `rejected=${rejected} ${m ? m[0] : '(worklist: sem marcador)'}`;
+}
+
+// Aplica a decisao no IRIS User Portal (Accept + Approve/Reject) e espera a
+// invocacao sair de "pending-approval".
+async function decideInPortal(page, invocationId, decision, knownApprovalId) {
+  if (!invocationId) {
+    log('Decisao no portal: invocationId ausente — pulando.');
+    return '';
+  }
+  const approvalId = knownApprovalId || (await findPendingApprovalId(invocationId));
+  if (!approvalId) {
+    log('Nenhuma aprovacao pendente encontrada para', invocationId);
+    return '';
+  }
+  log('Aprovacao pendente:', approvalId, '-> decisao:', decision);
+
+  // Recarrega o portal para a task aparecer na inbox (cache-buster).
+  await loadPortal(page, WORKFLOW_URL);
+  await selectPortalTask(page, approvalId);
+  await clickPortalAction(page, '$Accept');
+  await clickPortalAction(page, decision);
+  await waitPortalTaskGone(page, approvalId);
 
   // Confirma a transicao de status antes de seguir para o status tool.
-  const stStart = Date.now();
   let status = '';
-  while (Date.now() - stStart < 45000) {
-    status = parseStatus(runIris(statusScript(invocationId)));
+  for (let i = 0; i < 30; i++) {
+    status = parseStatusLine(irisSession(STATUS_SCRIPT(invocationId)));
     if (status === 'completed' || status === 'failed' || status === 'rejected') break;
-    await new Promise((r) => setTimeout(r, 1500));
+    await sleep(1500);
   }
-  await appendConsole(statusScript(invocationId), 'Status: ' + (status || '(desconhecido)'));
-  log('Status da invocacao apos aprovacao:', status || '(desconhecido)');
+  log('Status da invocacao apos a decisao:', status || '(desconhecido)');
+  return status;
 }
 
 // ---------- Steps do tutorial (en-US) ----------
@@ -413,9 +565,9 @@ const STEPS = [
   {
     view: 'terminal',
     action: 'type',
-    text: 'Use the AccountBlock tool with CustomerId 1, BlockType permanent, and Reason Restricted CNPJ detected',
+    text: 'Use the AccountBlock tool with CustomerId 1, BlockType "permanent", and Reason "Restricted CNPJ detected"',
     caption: 'Call the critical AccountBlock tool. It is held for human approval.',
-    captureGuid: true,
+    captureGuid: 'invocationId',
     waitMs: 25000,
   },
   {
@@ -425,18 +577,21 @@ const STEPS = [
     caption: 'GetInvocationStatus shows pending-approval — nothing reached the production yet.',
     waitMs: 25000,
   },
-  { view: 'portal', portal: WORKFLOW_URL, caption: 'The approval is a native IRIS Workflow task for the operator.', waitMs: 10000 },
+  { view: 'portal', portal: WORKFLOW_URL, caption: 'The approval is a native IRIS Workflow task in the User Portal inbox.', waitMs: 10000 },
   {
-    view: 'console',
-    action: 'approval',
-    caption: 'The operator approves via the IRIS terminal (the User Portal has a bug for approve/reject).',
-    waitMs: 12000,
+    view: 'portal',
+    action: 'portalDecision',
+    decision: 'Reject',
+    invocation: 'invocationId',
+    approval: 'approvalId',
+    caption: 'The operator takes ownership (Accept) and rejects it in the IRIS User Portal.',
+    waitMs: 20000,
   },
   {
     view: 'terminal',
     action: 'type',
     text: 'Use the GetInvocationStatus tool with invocationId ${invocationId}',
-    caption: 'After approval, status is completed and the Business Service executed.',
+    caption: 'The invocation is rejected — the AccountBlock Business Service never ran.',
     waitMs: 25000,
   },
   {
@@ -452,16 +607,35 @@ const STEPS = [
     action: 'type',
     text: 'Check the risk for Cnpj 12.345.678/0001-90 with full scope',
     caption: 'For a restricted CNPJ, the agent creates a Workflow task instead of calling RiskCheck.',
+    captureGuid: 'riskInvocationId',
     waitMs: 25000,
   },
   { view: 'portal', portal: WORKFLOW_URL, caption: 'A new approval task is created — humans retain final authority.', waitMs: 10000 },
+  {
+    view: 'portal',
+    action: 'portalDecision',
+    decision: 'Approve',
+    invocation: 'riskInvocationId',
+    approval: 'riskApprovalId',
+    caption: 'The operator approves it in the IRIS User Portal — the Business Service runs.',
+    waitMs: 20000,
+  },
+  { view: 'portal', portal: MESSAGE_VIEWER_URL, caption: 'The RiskCheck message is processed by the production.', waitMs: 9000 },
+  {
+    view: 'terminal',
+    action: 'type',
+    text: 'Use the GetInvocationStatus tool with invocationId ${riskInvocationId}',
+    caption: 'After approval, the invocation is completed.',
+    waitMs: 25000,
+  },
   { view: 'terminal', caption: 'InteropMCP lets AI agents talk to any IRIS Interoperability Production without rewriting it.', waitMs: 6000 },
 ];
 
 // ---------- Login do portal (contexto nao gravado) ----------
 
 async function loginForCookies(browser) {
-  const loginCtx = await browser.newContext({ colorScheme: 'dark' });
+  // locale en-US: o portal IRIS renderiza em ingles (mesmo das acoes Approve/Reject).
+  const loginCtx = await browser.newContext({ colorScheme: 'dark', locale: 'en-US' });
   const lp = await loginCtx.newPage();
   await lp.goto(PORTAL_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await sleep(1500);
@@ -483,6 +657,9 @@ async function main() {
   ensureDir(OUTPUT_DIR);
   log('=== Iniciando gravacao do tutorial InteropMCP (headless) ===');
   log('Tela:', WIDTH, 'x', HEIGHT);
+
+  // Estado limpo: a inbox do User Portal aparece no video.
+  log('Limpando estado anterior:', cleanupState());
 
   const server = await startStaticServer();
 
@@ -506,10 +683,13 @@ async function main() {
     colorScheme: 'dark',
     viewport: { width: WIDTH, height: HEIGHT },
     recordVideo: { dir: OUTPUT_DIR, size: { width: WIDTH, height: HEIGHT } },
+    locale: 'en-US',
   });
   await context.addCookies(cookies);
 
   const page = await context.newPage();
+  // O ZEN abre um confirm() antes de executar a acao (Accept/Approve/Reject).
+  installDialogHandler(page);
   const video = page.video();
   const t0 = Date.now();
 
@@ -540,18 +720,43 @@ async function main() {
       if (text.includes('${invocationId}') && ctx.invocationId) {
         text = text.replace(/\$\{invocationId\}/g, ctx.invocationId);
       }
+      if (text.includes('${riskInvocationId}') && ctx.riskInvocationId) {
+        text = text.replace(/\$\{riskInvocationId\}/g, ctx.riskInvocationId);
+      }
       await typeTerminal(page, text);
       await pressEnter(page);
       await waitTerminalIdle(page);
       if (step.captureGuid) {
+        // Fonte AUTORITATIVA: o IRIS. O texto do TUI pode ter o GUID quebrado
+        // de linha (terminal estreito), o que faz a extracao por rotulo falhar
+        // e cair no "ultimo GUID" — que e o ApprovalId, nao o InvocationId.
+        let found = null;
+        for (let i = 0; i < 15 && !found; i++) {
+          found = findLatestPendingApproval();
+          if (!found) await sleep(2000);
+        }
+        if (!found) throw new Error('aprovacao pendente nao encontrada no IRIS');
         const cur = await readTerminal(page);
-        ctx.invocationId = extractInvocationId(cur.ok ? cur.text : '');
-        log('invocationId extraído do terminal:', ctx.invocationId || '(não encontrado)');
+        const tuiId = extractLabeledGuid(cur.ok ? cur.text : '', 'Invocation ID');
+        if (tuiId && tuiId !== found.invocationId) {
+          log('AVISO: invocationId do TUI difere do IRIS; usando o do IRIS:', tuiId);
+        }
+        ctx[step.captureGuid] = found.invocationId;
+        ctx[step.captureGuid === 'invocationId' ? 'approvalId' : 'riskApprovalId'] = found.approvalId;
+        log(
+          `${step.captureGuid} (IRIS):`, found.invocationId,
+          '| approvalId:', found.approvalId
+        );
       }
     } else if (step.action === 'enter') {
       await pressEnter(page);
-    } else if (step.action === 'approval') {
-      await runApproval(page, ctx.invocationId);
+    } else if (step.action === 'portalDecision') {
+      await decideInPortal(
+        page,
+        ctx[step.invocation],
+        step.decision,
+        ctx[step.approval]
+      );
     } else if (step.action === 'wait') {
       await page.waitForTimeout(step.waitMs || 0);
     } else {

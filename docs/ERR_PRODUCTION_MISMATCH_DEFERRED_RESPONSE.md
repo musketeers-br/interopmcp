@@ -1,12 +1,17 @@
 # Error: Ens.ErrProductionMismatchInDeferredResponse
 
+> **⚠️ Superseded by corrected analysis.** This document describes the *original* diagnosis (production name context mismatch). The **corrected diagnosis** and the **fix implemented in application code** (no system classes changed) are documented in [`ERR_PRODUCTION_MISMATCH_DEFERRED_RESPONSE_ANALYSIS.md`](ERR_PRODUCTION_MISMATCH_DEFERRED_RESPONSE_ANALYSIS.md). Key corrections:
+> - The deferred response token is **empty**, not mismatched — the InteropMCP `TaskRequest` is created locally and never becomes an `Ens.MessageHeader`.
+> - The fix: `br.musketeers.InteropMCP.WorkflowTaskResponse` subclass overrides `OnAction` to close the task locally (no deferred response). Portal approval now works for new tasks.
+> - Options A/B/C (system class changes) are **not needed** — the same effect is achieved from application code.
+
 ## Summary
 
 The IRIS Interoperability workflow portal (`%DeepSee.UserPortal.Workflow`) triggers `Ens.Host.SendDeferredResponse` when an operator completes a workflow approval task. This method compares the production name stored in the deferred response token against `$$$EnsRuntime("Name")` evaluated in the CSP context of the portal. When these values differ, `Ens.ErrProductionMismatchInDeferredResponse` is raised and the approval is not processed.
 
 ## Symptom
 
-- A critical tool invocation (e.g. `RiskCheck`) remains in `pending-approval` state.
+- A critical tool invocation (e.g. `AccountBlock`) remains in `pending-approval` state.
 - The operator clicks **Approve** in the IRIS Management Portal / User Portal workflow inbox.
 - Error `Ens.ErrProductionMismatchInDeferredResponse: Production name mismatch while sending deferred response` is written to the Event Log.
 - The invocation stays stuck in `pending-approval` indefinitely.
@@ -144,7 +149,7 @@ Add a flag or property to `EnsLib.Workflow.TaskRequest` / `EnsLib.Workflow.TaskR
 
 1. Compile modified system classes in `%SYS`.
 2. Restart the production in `IRISAPP`.
-3. Create a new critical tool invocation (e.g. `RiskCheck`).
+3. Create a new critical tool invocation (e.g. `AccountBlock`).
 4. Approve via the portal (`%DeepSee.UserPortal.Workflow.zen`).
 5. Confirm:
    - No `Ens.ErrProductionMismatchInDeferredResponse` in Event Log.

@@ -90,7 +90,22 @@ chain — as the bundled demo does with `br.musketeers.InteropMCP.Demo.AuditProc
 ## 3. Approval workflow (critical tools)
 
 `critical` tools never execute on the agent's call. The call creates an invocation in
-`pending-approval` plus an approval request; a human operator decides:
+`pending-approval` plus an approval request; a human operator decides.
+
+**Primary UI: IRIS User Portal Workflow inbox** (recommended for operators)
+
+1. Open the DeepSee User Portal Workflow:
+   ```
+   http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen
+   ```
+2. Login as a user with the `Operators` role.
+3. In the inbox, select the task with Subject `Approval: <ApprovalId>` (status `Unassigned`).
+4. Click **Accept** to take ownership — the portal then shows **Relinquish** / **Approve** / **Reject**.
+5. Click **Approve** or **Reject** and confirm.
+
+The portal dispatches `EnsLib.Workflow.Engine.%ProcessAction` → `TaskResponse.OnAction` on the stored task class. InteropMCP provides `br.musketeers.InteropMCP.WorkflowTaskResponse`, whose `OnAction` records the decision in `Approvals` and **closes the task locally — no deferred response is needed** because the approval request was created outside a production message flow. This avoids `Ens.ErrProductionMismatchInDeferredResponse` (see `docs/ERR_PRODUCTION_MISMATCH_DEFERRED_RESPONSE.md` and `docs/ERR_PRODUCTION_MISMATCH_DEFERRED_RESPONSE_ANALYSIS.md`).
+
+**Terminal fallback (headless operator / automation)**
 
 ```objectscript
 zn "IRISAPP"
@@ -103,6 +118,8 @@ Do ##class(br.musketeers.InteropMCP.Approvals).Approve("<approvalId>", "operator
 Do ##class(br.musketeers.InteropMCP.Approvals).Reject("<approvalId>", "operator1", "policy X")
 // Cancel is an alias of Reject (stale items; never auto-expires)
 ```
+
+This terminal path also **bypasses `Ens.Host.SendDeferredResponse` entirely** and is not subject to the deferred-response mismatch error.
 
 The calling agent observes the outcome via `GetInvocationStatus` (poll) or the admin API.
 Every decision is logged (`br.musketeers.InteropMCP.Log`, `approval` component). There is **no automatic

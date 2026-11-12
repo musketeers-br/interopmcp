@@ -27,9 +27,11 @@ Transport: MCP streamable HTTP at `http://localhost:8080/mcp/interopmcp` (throug
 |------|-----------|---------|
 | `PayLookup` | `OrderId` (string, required), `CustomerId` (string) | readonly — executes immediately |
 | `CustomerUpdate` | `CustomerId` (string, required), `NewAddress` (string, required) | write — requires authorization; executes when authorized |
-| `RiskCheck` | `Cnpj` (string, required), `Scope` (string) | critical — queued for human approval, never auto-executed |
+| `RiskCheck` | `Cnpj` (string, required), `Scope` (string) | write — requires authorization; executes when authorized |
+| `AccountBlock` | `CustomerId` (string, required), `BlockType` (string), `Reason` (string) | critical — held for human approval via IRIS User Portal Workflow inbox (Accept → Approve/Reject) or terminal `Approvals.Approve`/`Reject` |
 | `BatchRun` | `ReportSet` (string, required) | readonly, async-flagged — returns processing reference |
 | `GetInvocationStatus` | `invocationId` (string, required) | returns invocation rows (status/result) |
+| `CreateWorkflowTask` | `pToolName` (string, required), `pParams` (JSON string, required), `pReason` (string) | meta tool — creates a human-approval workflow for any tool execution (used by agents for restricted CNPJ risk checks) |
 
 Note: the bridge prefixes tool names with the endpoint service (`mcp_interopmcp_PayLookup`).
 
@@ -80,8 +82,8 @@ bypassed by catalog regeneration.
 |--------|-----------|---------|
 | `CreateRequest` | `CreateRequest(pInvocationId, Output pApprovalId) As %Status` | (internal) creates a `pending` request |
 | `ListPending` | `ListPending(Output pList As %DynamicObject) As %Status` | All pending approval ids |
-| `Approve` | `Approve(pApprovalId, pApprover) As %Status` | Approves; releases the invocation |
-| `Reject` | `Reject(pApprovalId, pApprover, pReason) As %Status` | Rejects; the invocation never executes |
+| `Approve` | `Approve(pApprovalId, pApprover) As %Status` | Approves; releases the invocation. Called by `WorkflowTaskResponse.OnAction` when operator clicks **Approve** in the User Portal, or directly via terminal. **Bypasses `Ens.Host.SendDeferredResponse`** — not affected by `Ens.ErrProductionMismatchInDeferredResponse`. |
+| `Reject` | `Reject(pApprovalId, pApprover, pReason) As %Status` | Rejects; the invocation never executes. Same portal/terminal paths as `Approve`. |
 | `Cancel` | `Cancel(pApprovalId, pOperator, pReason) As %Status` | Operator cancellation (alias of `Reject`) |
 
 ### br.musketeers.InteropMCP.Invocations

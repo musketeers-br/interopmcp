@@ -22,7 +22,7 @@
   - [Step 4: Call a write tool — CustomerUpdate with Opencode](#step-4-call-a-write-tool--customerupdate-with-opencode)
   - [Step 5: Call a critical tool — AccountBlock with Opencode](#step-5-call-a-critical-tool--accountblock-with-opencode)
   - [Step 6: Check invocation status with Opencode](#step-6-check-invocation-status-with-opencode)
-  - [Step 7: Approve the critical call (human operator through IRIS Workflow)](#step-7-approve-the-critical-call-human-operator-through-iris-workflow)
+  - [Step 7: Reject the critical call in the IRIS User Portal](#step-7-reject-the-critical-call-in-the-iris-user-portal)
   - [Step 8: Configure agent to auto-create workflow tasks for restricted CNPJ risk checks](#step-8-configure-agent-to-auto-create-workflow-tasks-for-restricted-cnpj-risk-checks)
 - [5. What this means](#5-what-this-means)
 
@@ -49,7 +49,7 @@ InteropMCP itself is **production-agnostic**: it is not tied to the demo and wor
 
 ![Architecture Diagram](img/arch-diagram.png)
 
-For critical tools, InteropMCP adds a non-invasive human-in-the-loop layer. When a tool is classified as `critical` by the guardrail, the invocation is held and an approval record is created in `br.musketeers.InteropMCP.Approvals`. `br.musketeers.InteropMCP.WorkflowBridge.CreateTask` then creates a native IRIS Interoperability Workflow `TaskRequest/TaskResponse` linked to that approval and distributes it to the role `Operators`. The task appears in the IRIS DeepSee User Portal Workflow inbox at `http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen`, providing a familiar UI for operators without modifying the production.
+For critical tools, InteropMCP adds a non-invasive human-in-the-loop layer. When a tool is classified as `critical` by the guardrail, the invocation is held and an approval record is created in `br.musketeers.InteropMCP.Approvals`. `br.musketeers.InteropMCP.WorkflowBridge.CreateTask` then creates a native IRIS Interoperability Workflow `TaskRequest/TaskResponse` — of the application class `br.musketeers.InteropMCP.WorkflowTaskResponse` — linked to that approval and distributes it to the role `Operators`. The task appears in the IRIS DeepSee User Portal Workflow inbox at `http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen`, providing a familiar UI for operators without modifying the production. Because the approval request is created outside a production message flow, `WorkflowTaskResponse` closes the task locally when the operator acts: clicking **Accept** to take ownership, then **Approve** or **Reject**, completes the task through the same `OnAction` path the portal uses — with no deferred response needed.
 
 ## 3. How AI HUB helps
 
@@ -73,7 +73,7 @@ InteropMCP meets this need. Because the Business Services already carry class pa
 
 - **readonly** tools (e.g. `PayLookup`) execute immediately — autonomous reads only.
 - **write** tools (e.g. `CustomerUpdate`, `RiskCheck`) run only when the caller's identity is established and authorized; the decision is logged.
-- **critical** tools (e.g. `AccountBlock`) are **held**: no Business Service runs until an operator approves through the IRIS Workflow portal or terminal (`Approvals.Approve`). The invocation stays in `pending-approval` and never reaches the production until decided.
+- **critical** tools (e.g. `AccountBlock`) are **held**: no Business Service runs until an operator decides in the IRIS User Portal Workflow inbox (**Accept** → **Approve** or **Reject**). The invocation stays in `pending-approval` and never reaches the production until decided.
 
 Every decision is recorded in the gateway's audit store (`Invocations`, `Approvals`, `Log`) — a separate audit plane from the production's own `Ens.MessageHeader` / Visual Trace. This separation is what makes it governance: agents operate within declared policies, and humans retain final authority over state-changing actions.
 
@@ -253,11 +253,11 @@ This tool has no IRIS Interoperability invocation, it's a InteropMCP internal ca
 
 After approval, the same call will show `"Status":"completed"` and include the result in the `text` summary.
 
-### Step 7: Approve the critical call (human operator through IRIS Workflow)
+### Step 7: Reject the critical call in the IRIS User Portal (human operator)
 
-An operator reviews pending approvals and decides.
+An operator reviews pending approvals and decides whether the critical call runs.
 
-**Step 7a. View the task in the IRIS Workflow User Portal**
+**Step 7a. View the task in the IRIS User Portal**
 
 The same approval is surfaced as a native Workflow task. Open the DeepSee User Portal Workflow:
 
@@ -265,53 +265,39 @@ The same approval is surfaced as a native Workflow task. Open the DeepSee User P
 http://localhost:52773/csp/irisapp/_DeepSee.UserPortal.Workflow.zen
 ```
 
-Login with `_SYSTEM` / `SYS`. In the inbox for role `Operators`, the task with Subject `Approval: <ApprovalId>` is listed. The portal shows the task details and the **Approve** / **Reject** buttons for the operator.
+Login with `_SYSTEM` / `SYS`. In the inbox for role `Operators`, the task with Subject `Approval: <ApprovalId>` is listed, with status `Unassigned`. Selecting it shows the details and the **Accept** button to take ownership of the task.
 
 ![Workflow inbox in DeepSee User Portal](img/article-1-step-07-workflow-portal-inbox.png)
 
-**Step 7b. Approve or reject it**
+**Step 7b. Take ownership and reject**
 
-Open IRIS terminal in another terminal:
+After selecting the task, click **Accept** (take ownership). The portal then shows the action buttons **Relinquish** / **Approve** / **Reject**. Click **Reject** and confirm the dialog.
 
-```bash
-docker exec -it ai-hub-dev-template-iris-1 iris session iris -U IRISAPP
-```
+The approval is recorded as `rejected`, the task leaves the inbox, and the gated invocation is marked `rejected` — the `AccountBlock` Business Service **never runs**.
 
-Then, execute the script below:
+![Task owned — Approve / Reject buttons available](img/article-1-step-07-workflow-portal-owned.png)
 
-```objectscript
-// List pending approvals
-Set pend = ""
-Do ##class(br.musketeers.InteropMCP.Approvals).ListPending(.pend)
-Write pend.%ToJSON(), !
+![Inbox after rejection — task completed](img/article-1-step-07-workflow-portal-rejected.png)
 
-// Use the approvalId returned in Step 5
-Set ApprovalId = pend.pending.%Get(0)
+> **Why this works.** The portal dispatches `EnsLib.Workflow.Engine.%ProcessAction` → `TaskResponse.OnAction` on the task's stored class. InteropMCP provides `br.musketeers.InteropMCP.WorkflowTaskResponse`, whose `OnAction` records the decision in `br.musketeers.InteropMCP.Approvals` and closes the task locally — no deferred response is needed because the approval request was created outside a production message flow.
 
-// Approve a specific approval
-Do ##class(br.musketeers.InteropMCP.Approvals).Approve(ApprovalId, "operator1")
-
-// Or reject
-// Do ##class(br.musketeers.InteropMCP.Approvals).Reject(ApprovalId, "operator1", "policy violation")
-
-Halt
-```
-
-Now, you had approved the account blocking request, you should be able to see it in the Production:
-
-![Account Block in IRIS](img/article-1-step-05-opencode-accountblock-msg.png)
-
-Every decision is written to the gateway audit log (`br.musketeers.InteropMCP.Log`) and to the `br_musketeers_InteropMCP.Approvals` table.
-
-**Step 7c. Verify execution after approval**
+**Step 7c. Verify the invocation was rejected**
 
 ```
 Use the GetInvocationStatus tool with invocationId "<INVOCATION_ID>"
 ```
 
-After approval the status should be `"completed"` and the `text` field will contain a human-readable summary with the result.
+After rejection the status should be `"rejected"` and no message reached the production.
 
-![Approve critical call — operator1 approves the pending approval](img/article-1-step-07-approve.png)
+![Critical call rejected through the portal](img/article-1-step-07-reject.png)
+
+Every decision is written to the gateway audit log (`br.musketeers.InteropMCP.Log`) and to the `br_musketeers_InteropMCP.Approvals` table.
+
+> **Fallback (headless operator).** If the operator works only through the terminal, the same decision can be recorded without the portal:
+> ```
+> Do ##class(br.musketeers.InteropMCP.Approvals).Reject(ApprovalId, "operator1", "policy violation")
+> ```
+
 
 ### Step 8: Configure agent to auto-create workflow tasks for restricted CNPJ risk checks
 
@@ -359,11 +345,21 @@ Now, you have a new workflow task requesting an approval to invoke the Productio
 
 ![Workflow task for pending-approval Risk Check for a restricted Cnpj](img/article-1-step-08-workflow-task.png)
 
-You can follow the same steps shown in steps 7-* to approve it or reject it. If you approve it, you should see the correponding message process in the Production.
+Approve it in the User Portal: select the task, click **Accept** to take ownership, then click **Approve**. The approval is recorded, the task leaves the inbox, and the gated invocation is released — the `RiskCheck` Business Service runs through the normal production flow.
+
+![Task approved — task left the inbox](img/article-1-step-08-workflow-portal-approved.png)
+
+The corresponding `RiskCheck` message now appears in the IRIS Interoperability production:
+
+![RiskCheck message in the production](img/article-1-step-08-restricted-riskcheck-msg.png)
+
+And the invocation status becomes `"completed"`:
+
+![Critical call approved through the portal](img/article-1-step-08-opencode-status.png)
 
 ## 5. What this means
 
-InteropMCP lets AI agents talk to your existing InterSystems IRIS integrations without rewriting them, while keeping authentication, per-tool guardrails, and dual-plane auditability. The next article covers the security and authentication model in depth.
+InteropMCP lets AI agents talk to your existing InterSystems IRIS integrations without rewriting them, while keeping authentication, per-tool guardrails, and dual-plane auditability. Human operators complete critical calls from the IRIS User Portal Workflow inbox (Accept → Approve/Reject), and every decision is recorded in the gateway's audit store. The next article covers the security and authentication model in depth.
 
 ---
 *This article was drafted with AI assistance and reviewed by the author.*

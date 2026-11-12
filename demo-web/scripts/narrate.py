@@ -44,7 +44,7 @@ MIN_GAP = 0.25          # seconds of silence kept between cues
 
 # Timeline anchors (seconds on the FINAL video)
 INTRO_END = 67.96       # tutorial starts here
-TOTAL = 305.56          # intro + tutorial + outro
+TOTAL = 368.12          # intro (67.96) + tutorial (290.20) + outro (9.96)
 
 # --- Intro cues (anchored to the 7 scenes; text mirrors the on-screen captions) ---
 INTRO_CUES = [
@@ -59,26 +59,30 @@ INTRO_CUES = [
 
 # --- Tutorial cues: (relative_to_tutorial_start, text). Mirrors subtitles.srt ---
 TUTORIAL_CUES_REL = [
-    (8.899,  "InteropMCP. Turn your IRIS Interoperability Productions into MCP tools for AI agents."),
-    (12.302, "The demo production is only an example. InteropMCP publishes any IRIS Interoperability Production."),
-    (15.714, "Call the readonly PayLookup tool."),
-    (45.453, "In the IRIS Message Viewer, every call flows through the same Business Service, Business Process, and Business Operation production as before."),
-    (55.669, "Call the write CustomerUpdate tool. The guardrail logs the decision."),
-    (78.178, "The message is processed by the existing production."),
-    (87.388, "Call the critical AccountBlock tool. It is held for human approval."),
-    (118.435, "GetInvocationStatus shows pending-approval. Nothing reached the production yet."),
-    (138.684, "The approval is a native IRIS Workflow task for the operator."),
-    (148.891, "The operator approves via the IRIS terminal. After approval, status is completed and the Business Service executed."),
-    (168.554, "For a non-restricted CNPJ, the agent calls RiskCheck directly."),
-    (185.223, "The RiskCheck request appears in the production."),
-    (193.429, "For a restricted CNPJ, the agent creates a Workflow task instead of calling RiskCheck."),
-    (211.541, "A new approval task is created. Humans retain final authority."),
-    (221.754, "InteropMCP lets AI agents talk to any IRIS Interoperability Production without rewriting it."),
+    (8.841,   "InteropMCP. Turn your IRIS Interoperability Productions into MCP tools for AI agents."),
+    (12.256,  "The demo production is only an example. InteropMCP publishes any IRIS Interoperability Production."),
+    (15.613,  "Call the readonly PayLookup tool."),
+    (43.845,  "In the IRIS Message Viewer, every call flows through the same Business Service, Business Process, and Business Operation production as before."),
+    (54.051,  "Call the write CustomerUpdate tool. The guardrail logs the decision."),
+    (80.711,  "The message is processed by the existing production."),
+    (89.917,  "Call the critical AccountBlock tool. It is held for human approval."),
+    (126.619, "GetInvocationStatus shows pending-approval. Nothing reached the production yet."),
+    (146.263, "The approval is a native IRIS Workflow task in the User Portal inbox."),
+    (156.472, "The operator takes ownership, Accept, and rejects it in the IRIS User Portal."),
+    (169.058, "The invocation is rejected. The AccountBlock Business Service never ran."),
+    (186.748, "For a non-restricted CNPJ, the agent calls RiskCheck directly."),
+    (206.492, "The RiskCheck request appears in the production."),
+    (214.706, "For a restricted CNPJ, the agent creates a Workflow task instead of calling RiskCheck."),
+    (231.397, "A new approval task is created. Humans retain final authority."),
+    (241.604, "The operator approves it in the IRIS User Portal. The Business Service runs."),
+    (255.434, "The RiskCheck message is processed by the production."),
+    (264.643, "After approval, the invocation is completed."),
+    (283.287, "InteropMCP lets AI agents talk to any IRIS Interoperability Production without rewriting it."),
 ]
 
 # --- Outro cue ---
 OUTRO_CUES = [
-    (295.9, "Thank you for your time. InteropMCP is built on InterSystems IRIS and AI HUB."),
+    (358.46, "Thank you for your time. InteropMCP is built on InterSystems IRIS and AI HUB."),
 ]
 
 

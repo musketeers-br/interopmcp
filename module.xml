@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Export generator="Cache" version="25">
-  <Document name="ai-hub-dev-template.ZPM">
+  <Document name="interopmcp.ZPM">
     <Module>
-      <Name>ai-hub-dev-template</Name>
+      <Name>interopmcp</Name>
       <Version>2.2.0</Version>
       <Description>AI Hub Development Template</Description>
       <Packaging>module</Packaging>
