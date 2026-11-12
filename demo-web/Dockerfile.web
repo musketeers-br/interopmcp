@@ -1,0 +1,70 @@
+FROM node:20-slim AS builder
+
+ARG IRIS_WEB_BASE=http://localhost:52773
+ENV VITE_IRIS_WEB_BASE=${IRIS_WEB_BASE}
+
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install
+COPY frontend/ ./
+RUN npm run build
+
+FROM node:20-slim
+
+WORKDIR /app
+
+# Instalar nginx (curl para baixar o binário do opencode)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nginx \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Baixar o binário oficial do opencode (para o backend chamar via shell).
+# O binário (~185MB) não é versionado no Git: o GitHub rejeita blobs >100MB.
+ARG OPENCODE_VERSION=1.18.35
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "${arch}" in \
+      amd64) \
+        if grep -qwi avx2 /proc/cpuinfo; then \
+          asset="opencode-linux-x64.tar.gz"; \
+          sha="c8f888b451f5494a18f858fffb0e0b68f4e4baa9c241761c5f206884f0fa640d"; \
+        else \
+          asset="opencode-linux-x64-baseline.tar.gz"; \
+          sha="90c97d4a24d36437bce36f27195c9cd2e0b70ed037a04d1c6a6740eb246c2a73"; \
+        fi ;; \
+      arm64) \
+        asset="opencode-linux-arm64.tar.gz"; \
+        sha="f7f2ba59ee8aa94d388f9696575a32d20e71c2ee48def9f80fc693a60fec6c72" ;; \
+      *) echo "arquitetura não suportada: ${arch}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/opencode.tar.gz "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/${asset}"; \
+    echo "${sha}  /tmp/opencode.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \
+    chmod 755 /usr/local/bin/opencode; \
+    rm -f /tmp/opencode.tar.gz
+
+# Copiar config do opencode
+COPY opencode.json /app/opencode.json
+
+# Pass IRIS_WEB_BASE to backend runtime
+ARG IRIS_WEB_BASE=http://localhost:52773
+ENV IRIS_WEB_BASE=${IRIS_WEB_BASE}
+
+# Copiar restricted_cnpjs.txt para o agent prompt do opencode
+RUN mkdir -p /app/config
+COPY iris/config/restricted_cnpjs.txt /app/config/restricted_cnpjs.txt
+
+# Copiar build do frontend
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+
+# Copiar backend
+COPY backend/package.json /opt/backend/package.json
+RUN cd /opt/backend && npm install --production
+COPY backend/server.js /opt/backend/server.js
+
+EXPOSE 3000
+
+CMD ["sh", "-c", "mkdir -p /tmp/nginx/client_body /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi && nginx -g 'daemon off;' & node /opt/backend/server.js"]

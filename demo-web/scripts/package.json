@@ -1,0 +1,13 @@
+{
+  "name": "interopmcp-video-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tools to record the InteropMCP tutorial video (intro animation + browser automation + ffmpeg).",
+  "scripts": {
+    "record": "node record-video.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.65.0"
+  }
+}

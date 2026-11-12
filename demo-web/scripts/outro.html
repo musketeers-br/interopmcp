@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InteropMCP — Closing</title>
+<style>
+  @font-face {
+    font-family: 'Plus Jakarta Sans';
+    font-style: normal;
+    font-weight: 400 800;
+    font-display: swap;
+    src: url('assets/PJSSans.woff2') format('woff2');
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #0F172A;
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  canvas {
+    display: block;
+    width: 1280px;
+    height: 720px;
+    background: #0F172A;
+  }
+</style>
+</head>
+<body>
+  <canvas id="stage" width="1280" height="720"></canvas>
+
+<script>
+(function () {
+  'use strict';
+
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+
+  const DESIGN_W = 1000;
+  const DESIGN_H = 600;
+  const SCALE = 1.2;
+  const OFF_X = (canvas.width - DESIGN_W * SCALE) / 2;
+
+  const irisLogo = new Image();
+  irisLogo.src = 'assets/iris-logo.png';
+  let isLogoLoaded = false;
+  irisLogo.onload = () => { isLogoLoaded = true; };
+  irisLogo.onerror = () => { isLogoLoaded = false; };
+
+  const COLORS = {
+    bg: '#0F172A',
+    panel: '#1E293B',
+    borderColor: '#334155',
+    agent: '#93C5FD',
+    mcp: '#C084FC',
+    iris: '#6EE7B7',
+    warning: '#FDE047',
+    critical: '#F472B6',
+    dark: '#F1F5F9',
+    chipText: '#0F172A',
+    textMuted: '#94A3B8',
+    red: '#F87171',
+    success: '#10B981',
+    stroke: 'rgba(241, 245, 249, 0.55)'
+  };
+
+  const DURATION = 10; // seconds
+
+  let currentTime = 0;
+  let isPlaying = false;
+  let lastTimestamp = null;
+
+  const particles = [];
+  for (let i = 0; i < 28; i++) {
+    particles.push({
+      x: Math.random() * DESIGN_W,
+      y: Math.random() * DESIGN_H,
+      r: Math.random() * 3 + 1.5,
+      dx: (Math.random() - 0.5) * 0.4,
+      dy: (Math.random() - 0.5) * 0.4,
+      alpha: Math.random() * 0.28 + 0.14
+    });
+  }
+
+  function drawParticles() {
+    particles.forEach(p => {
+      p.x += p.dx;
+      p.y += p.dy;
+      if (p.x < 0) p.x = DESIGN_W;
+      if (p.x > DESIGN_W) p.x = 0;
+      if (p.y < 0) p.y = DESIGN_H;
+      if (p.y > DESIGN_H) p.y = 0;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(192, 132, 252, ' + p.alpha + ')';
+      ctx.fill();
+    });
+  }
+
+  const clamp01 = (v) => Math.min(Math.max(v, 0), 1);
+  const easeOutCubic = (v) => 1 - Math.pow(1 - v, 3);
+
+  function animate(timestamp) {
+    if (!lastTimestamp) lastTimestamp = timestamp;
+    const dt = (timestamp - lastTimestamp) / 1000;
+    lastTimestamp = timestamp;
+
+    if (isPlaying) {
+      currentTime += dt;
+      if (currentTime >= DURATION) {
+        currentTime = DURATION;
+        isPlaying = false;
+      }
+      lastTimestamp = timestamp;
+    }
+
+    const t = currentTime;
+
+    // Entrance ramps
+    const constAlpha = easeOutCubic(clamp01(t / 1.0));
+    const constScale = 0.92 + 0.08 * easeOutCubic(clamp01(t / 1.0));
+    const titleAlpha = clamp01((t - 0.5) / 0.6);
+    const tagAlpha = clamp01((t - 0.8) / 0.6);
+    const thanksAlpha = clamp01((t - 1.3) / 0.8);
+    const subAlpha = clamp01((t - 1.7) / 0.7);
+
+    // Fade-out over the final 1.0s
+    const fade = clamp01((t - (DURATION - 1.0)) / 1.0);
+
+    // Background
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    ctx.translate(OFF_X, 0);
+    ctx.scale(SCALE, SCALE);
+
+    drawParticles();
+
+    const centerX = 500;
+    const centerY = 260;
+
+    // --- Constellation (scene 1 of the reference) ---
+    ctx.save();
+    ctx.globalAlpha = constAlpha;
+    ctx.translate(centerX, centerY);
+    ctx.scale(constScale, constScale);
+    ctx.translate(-centerX, -centerY);
+
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 150, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(192, 132, 252, 0.35)';
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    drawNode(centerX - 150, centerY, 48, COLORS.agent, "AI Agents");
+    drawHexagon(centerX, centerY, 58, COLORS.mcp, "InteropMCP");
+    drawNode(centerX + 150, centerY, 48, COLORS.iris, "IRIS Production");
+
+    ctx.restore();
+
+    // --- Title + tagline (same layout as scene 1) ---
+    ctx.globalAlpha = titleAlpha;
+    ctx.fillStyle = COLORS.dark;
+    ctx.font = "800 32px 'Plus Jakarta Sans'";
+    ctx.textAlign = "center";
+    ctx.fillText("InteropMCP", centerX, 440);
+
+    ctx.globalAlpha = tagAlpha;
+    ctx.font = "600 15px 'Plus Jakarta Sans'";
+    ctx.fillStyle = COLORS.textMuted;
+    ctx.fillText("Turn IRIS Productions into Native MCP Tools for AI Agents", centerX, 472);
+
+    // --- Thank-you message ---
+    ctx.globalAlpha = thanksAlpha;
+    ctx.fillStyle = COLORS.mcp;
+    ctx.font = "800 27px 'Plus Jakarta Sans'";
+    ctx.fillText("Thank you for your time!", centerX, 517);
+
+    ctx.globalAlpha = subAlpha;
+    ctx.font = "600 13.5px 'Plus Jakarta Sans'";
+    ctx.fillStyle = COLORS.textMuted;
+    ctx.fillText("InteropMCP \u2014 built on InterSystems IRIS and AI HUB", centerX, 547);
+
+    ctx.textAlign = "left";
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // Fade to black for a clean ending
+    if (fade > 0) {
+      ctx.fillStyle = 'rgba(15, 23, 42, ' + (fade * 0.94) + ')';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    requestAnimationFrame(animate);
+  }
+
+  // --- helpers (same drawing language as the dark intro) ---
+  function drawNode(x, y, radius, color, label, sublabel) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.stroke;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.chipText;
+    ctx.font = "700 13px 'Plus Jakarta Sans'";
+    ctx.textAlign = "center";
+    ctx.fillText(label, x, sublabel ? y - 3 : y + 4);
+    if (sublabel) {
+      ctx.font = "500 11px 'Plus Jakarta Sans'";
+      ctx.fillStyle = '#1F2937';
+      ctx.fillText(sublabel, x, y + 14);
+    }
+    ctx.textAlign = "left";
+  }
+
+  function drawHexagon(x, y, radius, color, label, sublabel) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 3) * i;
+      const hx = x + radius * Math.cos(angle);
+      const hy = y + radius * Math.sin(angle);
+      if (i === 0) ctx.moveTo(hx, hy);
+      else ctx.lineTo(hx, hy);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.stroke;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    if (radius > 30) {
+      ctx.fillStyle = COLORS.chipText;
+      ctx.font = "700 13px 'Plus Jakarta Sans'";
+      ctx.textAlign = "center";
+      ctx.fillText(label, x, sublabel ? y - 3 : y + 4);
+      if (sublabel) {
+        ctx.font = "500 10px 'Plus Jakarta Sans'";
+        ctx.fillStyle = '#1F2937';
+        ctx.fillText(sublabel, x, y + 13);
+      }
+      ctx.textAlign = "left";
+    }
+  }
+
+  // Public control surface (used by record-outro.mjs)
+  window.__outro = {
+    totalDuration: DURATION,
+    get ready() { return document.__outroReady === true; },
+    get elapsed() { return currentTime; },
+    get playing() { return isPlaying; },
+    start() {
+      if (currentTime >= DURATION) currentTime = 0;
+      isPlaying = true;
+    },
+    pause() { isPlaying = false; }
+  };
+
+  function markReady() { document.__outroReady = true; }
+  Promise.resolve(document.fonts && document.fonts.ready).then(() => {
+    if (isLogoLoaded) return markReady();
+    let settled = false;
+    const done = () => { if (!settled) { settled = true; markReady(); } };
+    irisLogo.addEventListener('load', done);
+    irisLogo.addEventListener('error', done);
+    setTimeout(done, 1500);
+  });
+
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>

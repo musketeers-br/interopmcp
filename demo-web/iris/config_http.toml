@@ -1,0 +1,18 @@
+[[iris]]
+name = "local"
+server = { host = "localhost", port = 1972, username = "@{env:WG_USER}", password = "@{env:WG_PASS}" }
+pool = { min = 1, max = 1 }
+idle_timeout_secs = 60
+max_age_secs = 240
+endpoints = [
+    { path = "/mcp/interopmcp", username = "@{env:WG_USER}", password = "@{env:WG_PASS}" }
+]
+
+[mcp]
+transport = "http"
+port = 8080
+host = "0.0.0.0"
+
+# Forward the caller's Authorization header; never substitute a shared
+# endpoint identity. IRIS makes the authentication and entitlement decision.
+allow_anonymous = false
