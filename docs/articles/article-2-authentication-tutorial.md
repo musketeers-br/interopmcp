@@ -1,14 +1,5 @@
 # InteropMCP security and authentication: who can call your MCP tools
 
-**Executive summary**
-
-- The MCP endpoint `/mcp/interopmcp` runs in **secured mode only**: platform authentication (`AutheEnabled=32`), no anonymous traffic.
-- Callers need a valid IRIS user and the `:InteropMCPRoles` role (resource `InteropMCP_Access`).
-- Per-tool guardrails: `readonly` executes immediately; `write` requires an authorized caller; `critical` never executes without a recorded human approval.
-- Every decision (allowed, denied, approved, rejected) is logged by the gateway and by platform audit events (`AuthenticationDenied`, `AccessDenied`).
-
----
-
 ## 1. Authentication model
 
 InteropMCP is published as an IRIS web application of type 18 (served by the IRIS private web server, not the Apache CSP Gateway):
@@ -96,6 +87,15 @@ InteropMCP_Access:U,
 - `U` = use (connect), `R` = read, `RW` = read/write.
 - The role also receives `GRANT SELECT` on the gateway's own tables (`Invocations`, `Approvals`) via `EnsureSqlPrivileges()`, because database-level grants alone do not confer SQL table privileges.
 
+### Demo users
+
+The container bootstrap (`br.musketeers.InteropMCP.Demo.Setup.EnsureDemoUsers`) creates two users from `INTEROPMCP_DEMO_PASSWORD` (default `change-me`):
+
+| User | Role | Can call MCP tools? |
+|------|------|---------------------|
+| `mcp_demo` | `InteropMCPRoles` | Yes (entitled) |
+| `mcp_demo2` | (none) | No — `403` |
+
 ### Validate with Opencode
 
 Switch `INTEROPMCP_BASIC` to user `mcp_demo2` which has no role:
@@ -178,32 +178,7 @@ echo "$RESPONSE" | grep '^data: {' | sed 's/^data: //' | jq '.result.tools'
 Tools: [...]
 ```
 
-## 3. Caller identity
-
-In secured mode the CSP application has already authenticated the caller, so the gateway attributes each invocation to `$USERNAME`:
-
-```objectscript
-ClassMethod CurrentAgent() As %String
-{
-    Set user = $USERNAME
-    If (user = "") || (user = "UnknownUser") Quit "local-dev"
-    Quit user
-}
-```
-
-- Real IRIS user → identity stored with every invocation (`AgentIdentity` in `br_musketeers_InteropMCP.Invocations`).
-- Empty or `UnknownUser` → marker `local-dev` (fallback when identity was not established).
-
-## 4. Demo users
-
-The container bootstrap (`br.musketeers.InteropMCP.Demo.Setup.EnsureDemoUsers`) creates two users from `INTEROPMCP_DEMO_PASSWORD` (default `change-me`):
-
-| User | Role | Can call MCP tools? |
-|------|------|---------------------|
-| `mcp_demo` | `InteropMCPRoles` | Yes (entitled) |
-| `mcp_demo2` | (none) | No — `403` |
-
-## 5. Per-tool guardrails
+## 4. Per-tool guardrails
 
 Authentication opens the door; each tool's classification decides what happens next. The classification comes from the Business Service class parameter `AIGATEWAY` and is enforced by `br.musketeers.InteropMCP.Guardrails.Check` before any Business Service is fired:
 
@@ -250,7 +225,7 @@ Expected: `isError:false`, content type text with a JSON object:
 
 ![Guardrails via Opencode – readonly/write execute, critical held for approval](img/article-2-step-04-opencode-guardrails.png)
 
-## 6. Human-in-the-loop approval for critical tools
+## 5. Human-in-the-loop approval for critical tools
 
 Critical calls are parked in `pending-approval`. The operator decides in the **IRIS User Portal Workflow inbox** — this is the primary UI:
 
@@ -287,15 +262,13 @@ Do ##class(br.musketeers.InteropMCP.Approvals).Approve(ApprovalId, "operator1")
 Do ##class(br.musketeers.InteropMCP.Approvals).Reject(ApprovalId, "operator1", "policy violation")
 ```
 
-![Gateway invocations and approvals (SQL audit)](img/article-2-step-06-approval.png)
-
 There is no automatic expiry: pending items remain until decided or explicitly cancelled. Every decision is written to `br_musketeers_InteropMCP.Approvals` and to the gateway log (`br.musketeers.InteropMCP.Log`, component `approval`).
 
 ### Validate: query pending approvals via SQL
 
 ```sql
 SELECT ApprovalId, InvocationId, Decision, Approver, DecidedAt, Reason
-FROM br_musketeers_InteropMCP.Approvals;
+FROM br_musketeers_InteropMCP.Approvals
 ```
 
 Example row from a validated call:
@@ -313,16 +286,7 @@ Example row from a validated call:
 
 ![Gateway invocations and approvals (SQL audit)](img/article-2-step-06-approval-opencode.png)
 
-## 7. Platform audit events
-
-Secured mode requires platform auditing enabled in the IRIS Management Portal, System Administration > Security > Auditing. The setup provisions the `INTEROPMCP` event type with two events:
-
-- `AuthenticationDenied` — authentication rejected at the endpoint.
-- `AccessDenied` — entitlement/role denial (e.g. user lacks `InteropMCPRoles`).
-
-Security-relevant events (denied calls, rejected authorizations, approval decisions) are also written by `br.musketeers.InteropMCP.Log` at `warn`/`error` levels to the console and to the persistent global `^InteropMCP.LogD`.
-
-## 8. Two separate audit planes
+## 6. Two separate audit planes
 
 By design, the gateway and the production keep independent audit trails:
 
@@ -337,8 +301,14 @@ The gateway never writes into production structures — it only fires Business S
 
 ```sql
 SELECT InvocationId, ToolName, AgentIdentity, Status, StartedAt, EndedAt
-FROM br_musketeers_InteropMCP.Invocations ORDER BY StartedAt DESC;
+FROM br_musketeers_InteropMCP.Invocations ORDER BY StartedAt DESC
 ```
+
+Example row from a rejected call:
+
+| InvocationId | ToolName | AgentIdentity | Status |
+|--------------|----------|---------------|--------|
+| `1A199A17-…` | `AccountBlock` | `mcp_demo` | `rejected` |
 
 Example row from a validated call:
 
@@ -351,16 +321,6 @@ And a pending critical approval:
 | ApprovalId | InvocationId | Decision | Approver |
 |------------|--------------|----------|----------|
 | `62ADC228-…` | `62AD9123-…` | `pending` | (none) |
-
-## 9. Secure deployment checklist
-
-1. Enable platform auditing in the IRIS Management Portal, System Administration > Security > Auditing.
-2. Provision the endpoint: `Do ##class(br.musketeers.InteropMCP.Setup).Run()`.
-3. Create callers with role `InteropMCPRoles`; create unentitled users for negative testing.
-4. Verify `401` without credentials and `403` for users without the role.
-5. Classify each Business Service (`readonly` / `write` / `critical`) by operational risk.
-6. Designate operators who will run `Approvals.Approve` / `Reject` for critical tools.
-7. Monitor `br_musketeers_InteropMCP.Invocations` and `Approvals` plus `^InteropMCP.LogD`.
 
 ---
 
