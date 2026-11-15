@@ -3,7 +3,7 @@ Class br.musketeers.InteropMCP.Demo.RiskCheckBS Extends Ens.BusinessService
 
 Parameter REQUESTCLASS = "br.musketeers.InteropMCP.Demo.RiskCheckRequest";
 Parameter AIGATEWAY = "write";
-Parameter AIGATEWAYDESC = "Risk assessment requiring write access";
+Parameter AIGATEWAYDESC = "Risk assessment — requires authorization; executes when authorized";
 
 Method OnProcessInput(pRequest As Ens.Request, Output pResponse As Ens.Response) As %Status
 {

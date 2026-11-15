@@ -9,6 +9,10 @@
 /// - %Boolean maps to "boolean"
 /// - list/array collections map to "array"
 /// A property is marked required when its Required flag is set.
+/// A property whose name starts with "Gateway" is the gateway's own channel -
+/// the invoker fills it, not the caller - and is not published. A percent-
+/// prefixed property would not do: the platform treats those as internal and
+/// does not persist them, so a background run would lose the value.
 Class br.musketeers.InteropMCP.SchemaMapper Extends %RegisteredObject
 {
 
@@ -33,6 +37,7 @@ ClassMethod MapProperties(pRequestClass As %String, Output pSC As %Status) As %D
     } Else {
         For i = 1:1:cd.Properties.Count() {
             Set pd = cd.Properties.GetAt(i)
+            If $Extract(pd.Name, 1, 7) = "Gateway" Continue
             Set type = ..ToJsonSchemaType(pd.Type, pd.Collection)
             Set required = (pd.Required = 1)
             Set entry = ##class(%DynamicObject).%New()

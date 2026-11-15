@@ -26,6 +26,11 @@ Parameter LegacyAgentPlaceholder = "agent";
 /// an anonymous placeholder.
 ClassMethod CurrentAgent() As %String
 {
+    // The gateway propagates the caller across a direct service invocation by
+    // process-private context. A nested tool call made by the agent therefore
+    // keeps the identity of the caller that started the run.
+    Set contextAgent = $Get(^||InteropMCP.AgentIdentity)
+    If contextAgent '= "" Quit contextAgent
     Set user = $USERNAME
     If (user = "") || (user = "UnknownUser") Quit "local-dev"
     Quit user
@@ -53,14 +58,14 @@ ClassMethod ResolveAgent(pAgent As %String) As %String
 ///   approval creation); pProceed stays 0 in those cases
 /// pParams and pAgent are persisted with the pending invocation so the
 /// approval release path can replay the exact call.
-ClassMethod Check(pTool As %String, pParams As %DynamicObject, pAgent As %String, Output pProceed As %Boolean, Output pHoldId As %String, Output pInvocationId As %String, Output pSC As %Status)
+ClassMethod Check(pTool As %String, pParams As %DynamicObject, pAgent As %String, Output pProceed As %Boolean, Output pHoldId As %String, Output pInvocationId As %String, Output pSC As %Status) As %Status
 {
     Set pProceed = 0
     Set pHoldId = ""
     Set pInvocationId = ""
     Set pSC = $$$OK
     Set sc = ##class(br.musketeers.InteropMCP.Registry).GetToolDefinition(pTool, .def)
-    If $$$ISERR(sc) Set pSC = sc Quit
+    If $$$ISERR(sc) { Set pSC = sc Quit sc }
     Set classification = def.classification
     Set logData = ##class(%DynamicObject).%New()
     Do logData.%Set("tool", pTool)
@@ -72,10 +77,10 @@ ClassMethod Check(pTool As %String, pParams As %DynamicObject, pAgent As %String
         Set pProceed = 1
     } ElseIf classification = "critical" {
         Set sc = ##class(br.musketeers.InteropMCP.Invocations).CreateInvocation(pTool, pAgent, pParams, .invId)
-        If $$$ISERR(sc) Set pSC = sc Quit
+        If $$$ISERR(sc) { Set pSC = sc Quit sc }
         Set pInvocationId = invId
         Set sc = ##class(br.musketeers.InteropMCP.Approvals).CreateRequest(invId, .pHoldId)
-        If $$$ISERR(sc) Set pSC = sc Quit
+        If $$$ISERR(sc) { Set pSC = sc Quit sc }
 
         // Create linked Workflow task for portal-based approval (non-blocking)
         Set sc = ##class(br.musketeers.InteropMCP.WorkflowBridge).CreateTask(pHoldId)

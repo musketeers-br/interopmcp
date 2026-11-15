@@ -1,0 +1,142 @@
+{
+  "_comment": [
+    "Published MCP tool surface captured from the running gateway before the",
+    "AI agent adapter existed. This file is the regression contract: the tools",
+    "listed here, their names and their input schemas must survive unchanged.",
+    "A description may only be added, never removed -- the bridge's own",
+    "'[Remote Service: ...]' prefix is stripped here because it is decoration",
+    "added by the MCP bridge, not by the gateway."
+  ],
+  "capturedAt": "2026-11-12",
+  "production": "br.musketeers.InteropMCP.Demo.Production",
+  "tools": [
+    {
+      "name": "mcp_interopmcp_AccountBlock",
+      "inputSchema": {
+        "properties": {
+          "BlockType": {
+            "type": "string"
+          },
+          "CustomerId": {
+            "type": "string"
+          },
+          "Reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "CustomerId"
+        ],
+        "type": "object"
+      },
+      "description": ""
+    },
+    {
+      "name": "mcp_interopmcp_BatchRun",
+      "inputSchema": {
+        "properties": {
+          "ReportSet": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ReportSet"
+        ],
+        "type": "object"
+      },
+      "description": ""
+    },
+    {
+      "name": "mcp_interopmcp_CreateWorkflowTask",
+      "inputSchema": {
+        "properties": {
+          "pParams": {
+            "type": "string"
+          },
+          "pReason": {
+            "type": "string"
+          },
+          "pToolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pToolName",
+          "pParams"
+        ],
+        "type": "object"
+      },
+      "description": "Requests a human-approval workflow for any tool execution, independent of\nthe target Business Service classification.\n\nThe agent calls this when it decides (e.g. after reading a restricted CNPJ\nlist) that an operation needs human review before reaching the production.\nThe MCP creates an Invocation (pending-approval), an Approval request and a\nnative IRIS Workflow task. The agent receives _status: \"held\" and can poll\nthe outcome with GetInvocationStatus(invocationId).\n\nAfter a human approves (via Workflow portal or terminal Approvals.Approve),\nthe stored invocation is replayed through Invoker.Invoke, which fires the\ntarget Business Service.\n\npParams is a JSON string carrying the arguments for the target tool."
+    },
+    {
+      "name": "mcp_interopmcp_CustomerUpdate",
+      "inputSchema": {
+        "properties": {
+          "CustomerId": {
+            "type": "string"
+          },
+          "NewAddress": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "CustomerId",
+          "NewAddress"
+        ],
+        "type": "object"
+      },
+      "description": ""
+    },
+    {
+      "name": "mcp_interopmcp_GetInvocationStatus",
+      "inputSchema": {
+        "properties": {
+          "invocationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invocationId"
+        ],
+        "type": "object"
+      },
+      "description": "Returns the current lifecycle row(s) for one invocation: InvocationId,\nStatus, Result and the attributed caller identity as stored by\nbr.musketeers.InteropMCP.Invocations."
+    },
+    {
+      "name": "mcp_interopmcp_PayLookup",
+      "inputSchema": {
+        "properties": {
+          "CustomerId": {
+            "type": "string"
+          },
+          "OrderId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "OrderId"
+        ],
+        "type": "object"
+      },
+      "description": ""
+    },
+    {
+      "name": "mcp_interopmcp_RiskCheck",
+      "inputSchema": {
+        "properties": {
+          "Cnpj": {
+            "type": "string"
+          },
+          "Scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Cnpj"
+        ],
+        "type": "object"
+      },
+      "description": ""
+    }
+  ]
+}

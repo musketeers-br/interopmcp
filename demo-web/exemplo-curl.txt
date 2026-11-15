@@ -1,0 +1,30 @@
+# Exemplo de chamada direta com curl passando um PDF ao agente (prompt em en-US)
+
+# 1) Defina variáveis (ajuste a senha conforme necessário)
+HOST="localhost"
+PORT="52775"
+USER="mcp_demo"
+PASS="change-me"
+PDF="../src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-118.pdf"
+URL="http://${HOST}:${PORT}/api/agent/assess"
+
+# 2) Gere o Basic Auth
+BASIC=$(printf '%s:%s' "$USER" "$PASS" | base64 -w0)
+
+# 3) Codifique o PDF em Base64 (uma linha, sem quebras)
+PDF_B64=$(base64 -w0 "$PDF")
+
+# 4) Monte o payload JSON com o prompt em en-US
+# O CNPJ do fornecedor só vai no payload quando o chamador o informa; por
+# omissão o agente extrai o fornecedor do documento anexado. Um CNPJ fixo
+# aqui pode apontar para uma empresa diferente da que esta na fatura.
+PAYLOAD=$(printf '{"Goal":"Evaluate the supplier of the attached document","DocumentBase64":"%s"}' "$PDF_B64")
+
+# 5) Faça a chamada com curl
+curl -sS -X POST "$URL" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Basic $BASIC" \
+  --data-binary "$PAYLOAD" \
+  --max-time 300 | python3 -m json.tool
+
+# Resultado esperado: JSON com Status, InvocationId e Answer (em caso de sucesso, HTTP 200).

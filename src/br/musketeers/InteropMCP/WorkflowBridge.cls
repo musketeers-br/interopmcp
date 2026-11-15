@@ -60,7 +60,7 @@ ClassMethod CreateTask(pApprovalId As %String) As %Status
         // The TaskRequest is the workflow request
         Set request = ##class(EnsLib.Workflow.TaskRequest).%New()
         Set request.%Subject = "Approval: "_pApprovalId
-        Set request.%Message = "Critical tool invocation approval pending: "_pApprovalId
+        Set request.%Message = "Tool invocation approval pending: "_pApprovalId
         Set request.%Priority = 1
         Set request.%Actions = "Approve,Reject"
         Set request.%TaskHandler = "br.musketeers.InteropMCP.WorkflowTaskResponse"

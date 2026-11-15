@@ -14,7 +14,7 @@ Method TestGuardrailDecision() As %Status
     Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("CustomerUpdate", params, "agent", .proceed, .holdId, .sc)
     Do $$$AssertStatusOK(sc)
     Do $$$AssertTrue(proceed, "write proceeds with authorization")
-    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("RiskCheck", params, "agent", .proceed, .holdId, .sc)
+    Set sc = ##class(br.musketeers.InteropMCP.Guardrails).Check("AccountBlock", params, "agent", .proceed, .holdId, .sc)
     Do $$$AssertStatusOK(sc)
     Do $$$AssertTrue('proceed, "critical held for approval")
     Do $$$AssertTrue(holdId '= "", "approval request created")

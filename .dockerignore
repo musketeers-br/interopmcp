@@ -28,3 +28,12 @@ Thumbs.db
 *~
 .vscode/
 .idea/
+
+# Excluir arquivos não-ObjectScript do contexto de build da imagem Docker
+# (evita que o zpm load tente importar PDFs/MDs/Python como ObjectScript)
+src/br/musketeers/InteropMCP/Demo/Invoices/
+src/br/musketeers/InteropMCP/Demo/Policies/
+# O módulo de extração de PDF é instalado no Python embutido pelo Dockerfile
+# (demo-web/iris/Dockerfile); o restante do diretório fica fora do contexto.
+src/br/musketeers/InteropMCP/Demo/python/**
+!src/br/musketeers/InteropMCP/Demo/python/interopmcp_pdf.py

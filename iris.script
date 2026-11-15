@@ -31,7 +31,8 @@ zn "%SYS"
 
     // Compile the demo production classes (container-only — NOT part of the IPM module,
     // which installs the production-agnostic InteropMCP core).
-    Do $system.OBJ.LoadDir("/home/irisowner/dev/src/br/musketeers/InteropMCP/Demo","ck",,1)
+    // Carrega apenas arquivos *.cls (ignorando PDFs/MDs/Python em subdirs do Demo).
+    Do $system.OBJ.Load("/home/irisowner/dev/src/br/musketeers/InteropMCP/Demo/*.cls", "ck")
 
     // Provision gateway endpoint (core, framework AI HUB pattern) + demo production.
     // Secured mode requires platform auditing; enable it before provisioning.

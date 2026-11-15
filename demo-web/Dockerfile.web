@@ -52,9 +52,10 @@ COPY opencode.json /app/opencode.json
 ARG IRIS_WEB_BASE=http://localhost:52773
 ENV IRIS_WEB_BASE=${IRIS_WEB_BASE}
 
-# Copiar restricted_cnpjs.txt para o agent prompt do opencode
-RUN mkdir -p /app/config
-COPY iris/config/restricted_cnpjs.txt /app/config/restricted_cnpjs.txt
+# O restricted_cnpjs.txt nao e copiado aqui: o docker-compose monta o
+# ficheiro unico (config/restricted_cnpjs.txt da raiz do repo) em
+# /app/config/restricted_cnpjs.txt. Copiar uma segunda copia aqui criaria
+# uma fonte de verdade paralela, que ja divergiu da original.
 
 # Copiar build do frontend
 COPY --from=builder /app/dist /usr/share/nginx/html

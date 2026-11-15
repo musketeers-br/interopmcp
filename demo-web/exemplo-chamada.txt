@@ -1,0 +1,16 @@
+# Exemplo de chamada passando um PDF ao agente (en-US prompt)
+
+./assess-pdf.sh \
+  --host localhost \
+  --port 52775 \
+  --user mcp_demo \
+  --password change-me \
+  --pdf ../src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-118.pdf \
+  --timeout 300
+
+# Se preferir, defina a senha via variável de ambiente e omita --password:
+# INTEROPMCP_PWD=change-me ./assess-pdf.sh --pdf ../src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-118.pdf --verbose
+
+# Por omissão o CNPJ do fornecedor não vai no pedido: o agente o extrai do PDF.
+# Para informá-lo explicitamente, use --cnpj:
+# ./assess-pdf.sh --pdf ../src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-120.pdf --cnpj 12.345.678/0001-95

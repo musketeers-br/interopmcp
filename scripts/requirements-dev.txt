@@ -1,0 +1,11 @@
+# Development-only dependencies.
+#
+# These are NOT installed into the IRIS embedded Python runtime. They are only
+# needed to regenerate the demonstration fixtures and to run the fixture tests
+# from a workstation.
+#
+#   python -m pip install -r scripts/requirements-dev.txt
+#
+reportlab==5.1.0
+pypdf==7.0.1
+pytest>=7.0
