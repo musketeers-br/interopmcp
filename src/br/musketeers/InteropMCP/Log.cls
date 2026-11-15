@@ -43,7 +43,12 @@ ClassMethod Write(pLevel As %String, pComponent As %String, pMessage As %String,
     If $IsObject(pData) Set line = line _ " | " _ pData.%ToJSON()
     Set tId = $Increment(^InteropMCP.LogD)
     Set ^InteropMCP.LogD(tId) = line
-    Write line, !
+    // The console sink must not write into an HTTP response: a REST handler
+    // shares the current device with %response, so a log line written here
+    // would corrupt the JSON body. In a CSP/web context %response is set; in a
+    // terminal session or a production job it is not, and the line still
+    // reaches the console / container log.
+    If '$IsObject($Get(%response)) Write line, !
     Quit $$$OK
 }
 

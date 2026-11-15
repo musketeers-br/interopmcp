@@ -3,3 +3,7 @@ mcp==1.27.0
 pydantic==2.13.1
 pydantic-core==2.46.1
 typing-extensions==4.15.0
+
+# Reading supplier invoice documents from the production's Embedded Python
+# capability. Installed into the embedded Python runtime by the Dockerfile.
+pypdf==7.0.1

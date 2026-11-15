@@ -181,7 +181,11 @@ ClassMethod ProvisionApplication(pMode As %String) As %Status
     Set props("DispatchClass") = ..#DispatchClass
     Set props("Type") = 18
     Set props("AutheEnabled") = 32
-    Set props("Resource") = ..#ResourceName
+    // The application is not bound to the gateway resource on purpose: the
+    // entitlement check lives in MCPService.AccessCheck, so a caller without
+    // the entitlement is answered with a JSON 403 and an audit record
+    // instead of being turned away by the CSP dispatcher before the gateway
+    // ever sees the request.
     Set props("NameSpace") = tNs
     Set props("Name") = "IRIS InteropMCP"
     Set props("MatchRoles") = ""

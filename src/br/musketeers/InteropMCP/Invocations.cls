@@ -24,16 +24,18 @@ Property ToolName As %String(MAXLEN = 100);
 Property AgentIdentity As %String(MAXLEN = 200);
 
 /// Call arguments as JSON, stored only after schema validation. Kept as a
-/// string so the exact agent-supplied payload is preserved for audit.
-Property Parameters As %String(MAXLEN = 10000);
+/// string so the exact agent-supplied payload is preserved for audit. The
+/// agent's goal carries the text of an attached document, so the arguments
+/// are long.
+Property Parameters As %String(MAXLEN = 64000);
 
 /// Lifecycle state; values and transitions documented at class level.
 /// Invalid transitions (for example from rejected straight to executing) are refused by callers.
 Property Status As %String(MAXLEN = 32);
 
 /// Business result as JSON, populated when the invocation reaches a terminal
-/// successful state.
-Property Result As %String(MAXLEN = 10000);
+/// successful state. The agent's answer is prose, so the result is long.
+Property Result As %String(MAXLEN = 64000);
 
 /// Error detail when the invocation failed or was refused.
 Property ErrorMessage As %String(MAXLEN = 2000);
