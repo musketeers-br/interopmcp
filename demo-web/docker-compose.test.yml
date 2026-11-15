@@ -1,0 +1,93 @@
+# Override para um ambiente de teste paralelo.
+# Duplica TODOS os serviços em portas/nomes distintos da produção, sem tocar
+# containers/volumes/redes de produção. SEMPRE rode com um projeto separado:
+#
+#   docker compose -p demo-web-test \
+#     -f docker-compose.yml -f docker-compose.test.yml up -d --build
+#
+# (ou use ./test-stack.sh up, que já faz isso e imprime as URLs)
+#
+# Notas:
+#   - `ports: !override` substitui (em vez de somar) as portas da produção.
+#   - Com `-p demo-web-test`, rede/imagens/volumes ficam isolados
+#     (demo-web-test_default, demo-web-test_*, demo-web-test_*).
+services:
+  iris:
+    ports: !override
+      - 52775:52773
+      - 8083:8080
+    container_name: ai-hub-demo-web-iris-test-1
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'timeout 2 bash -c \"cat < /dev/null > /dev/tcp/localhost/1972\" && echo OK || exit 1'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  mcp-launcher:
+    container_name: ai-hub-demo-web-mcp-launcher-test-1
+    environment:
+      - CONTAINER_NAME=ai-hub-demo-web-iris-test-1
+      - INTEROPMCP_BASIC
+    command: >
+      sh -c "
+        echo 'Waiting for IRIS test container to be healthy...';
+        while ! docker inspect -f '{{.State.Health.Status}}' ai-hub-demo-web-iris-test-1 2>/dev/null | grep -q 'healthy'; do sleep 2; done;
+        sleep 10;
+        echo 'Provisioning MCP gateway endpoint (test)';
+        docker exec ai-hub-demo-web-iris-test-1 sh -c 'iris session IRIS < /home/irisowner/dev/bootstrap-gateway.script';
+        echo 'Starting iris-mcp-server (http transport) (test)';
+        docker exec -d -e WG_USER=$${WG_USER} -e WG_PASS=$${WG_PASS} ai-hub-demo-web-iris-test-1 sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run --status-tool false > /tmp/mcp.log 2>&1';
+        echo 'Waiting for mcp-server listener on :8080 (test)';
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+          if docker exec ai-hub-demo-web-iris-test-1 sh -c 'grep -q Starting.HTTP.streaming.server /tmp/mcp.log 2>/dev/null'; then break; fi;
+          sleep 1;
+        done;
+        echo 'Validating gateway configuration (test)';
+        if [ -n \"$${INTEROPMCP_DEMO_PASSWORD}\" ]; then
+          docker exec -e INTEROPMCP_USER=\"$${INTEROPMCP_USER:-mcp_demo}\" -e INTEROPMCP_DEMO_PASSWORD=\"$${INTEROPMCP_DEMO_PASSWORD}\" ai-hub-demo-web-iris-test-1 python3 /home/irisowner/dev/scripts/validate-mcp-config.py || echo 'WARNING: gateway configuration validation failed';
+        elif [ -n \"$${INTEROPMCP_BASIC}\" ]; then
+          docker exec -e INTEROPMCP_BASIC=\"$${INTEROPMCP_BASIC}\" ai-hub-demo-web-iris-test-1 python3 /home/irisowner/dev/scripts/validate-mcp-config.py || echo 'WARNING: gateway configuration validation failed';
+        else
+          echo 'Skipping configuration validation';
+        fi;
+        echo 'Supervising mcp-server (test)';
+        while true; do
+          sleep 30;
+          if ! docker exec ai-hub-demo-web-iris-test-1 sh -c 'pgrep -f \"[i]ris-mcp-server\" > /dev/null 2>&1'; then
+            echo 'mcp-server down; restarting';
+            docker exec -d ai-hub-demo-web-iris-test-1 sh -c '/usr/irissys/bin/iris-mcp-server -c /home/irisowner/dev/config_http.toml run --status-tool false > /tmp/mcp.log 2>&1';
+          fi;
+        done
+      "
+
+  opencode:
+    ports: !override
+      - 127.0.0.1:3032:3030
+    container_name: ai-hub-demo-web-opencode-test-1
+    volumes:
+      - opencode_data_test:/root/.opencode
+
+  ttyd-opencode:
+    ports: !override
+      - 127.0.0.1:7683:7681
+    container_name: ai-hub-demo-web-ttyd-opencode-test-1
+    volumes:
+      - ttyd_opencode_data_test:/root/.opencode
+      - ./../config/restricted_cnpjs.txt:/app/config/restricted_cnpjs.txt:ro
+
+  web:
+    ports: !override
+      - 127.0.0.1:3002:3000
+    container_name: ai-hub-demo-web-web-test-1
+    build:
+      args:
+        - IRIS_WEB_BASE=http://localhost:52775
+    environment:
+      - IRIS_WEB_BASE=http://localhost:52775
+    volumes:
+      - ./../config/restricted_cnpjs.txt:/app/config/restricted_cnpjs.txt:ro
+
+volumes:
+  opencode_data_test:
+  ttyd_opencode_data_test:
