@@ -82,7 +82,7 @@ These settings live on the production item and are read by the adapter at runtim
 
 The Management Portal is where you edit them. On the demo production, the settings panel of the `AgentHost` item is the agent's whole configuration — its document, its model and provider, its effort and time bounds, and the paths it reads:
 
-![Management Portal — the adapter settings of the AgentHost item on the demo production](img/article-3-step-03-adapter-settings.png)
+![Management Portal — the adapter settings of the AgentHost item on the demo production](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-03-adapter-settings.png)
 
 ### The agent's document, in full
 
@@ -296,7 +296,7 @@ Two things to read out of it. The agent read the restricted list **first** (`Rea
 
 Two invocation ids appear in the same body, and the difference is the audit trail: the run's own id (`BE099310-…`), which is what the caller polls, and the tool call's id (`C7C8521D-…`), which is what the production traced. One run, one row per action.
 
-![Message Viewer — the RiskCheck message in the production](img/article-3-step-06-msg-viewer-non-restricted.png)
+![Message Viewer — the RiskCheck message in the production](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-msg-viewer-non-restricted.png)
 
 ### Step 2: a PDF whose CNPJ is on the restricted list
 
@@ -358,19 +358,19 @@ The classification of `RiskCheck` is `write`, not `critical`: the approval did n
 
 The approval is a native IRIS Workflow task. It lands in the User Portal Workflow inbox, under the `Operators` role, with the approval id as its subject:
 
-![Workflow inbox — the pending approval](img/article-3-step-06-workflow-inbox.png)
+![Workflow inbox — the pending approval](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-workflow-inbox.png)
 
 Opening it shows the subject, the reason the agent gave, and the action buttons:
 
-![Workflow task details — the approval and its reason](img/article-3-step-06-workflow-task.png)
+![Workflow task details — the approval and its reason](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-workflow-task.png)
 
 **Accept** takes ownership of the task; **Approve** releases the held call. The stored invocation is replayed through `Invoker.Invoke`, so the `RiskCheck` Business Service runs through the normal production flow — with the same message headers as any other call:
 
-![Workflow — approved, the inbox is empty again](img/article-3-step-06-workflow-approved.png)
+![Workflow — approved, the inbox is empty again](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-workflow-approved.png)
 
 And the production now carries the message that was held until the human decided:
 
-![Message Viewer — the RiskCheck message, after the approval](img/article-3-step-06-msg-viewer-after-approval.png)
+![Message Viewer — the RiskCheck message, after the approval](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-msg-viewer-after-approval.png)
 
 The held invocation ends in state `completed`, and the operator's decision is the audit record of why it was allowed to run. From the terminal, the same approval is `Approvals.Approve("<approvalId>", "<approver>")`, and the outcome can be read back with the gateway's own `GetInvocationStatus` tool:
 
@@ -405,5 +405,3 @@ Every scenario in this article is reproducible with `demo-web/scripts/record-scr
 ---
 
 *This article was drafted with AI assistance and reviewed by the author.*
-
-**Repository:** `src/br/musketeers.InteropMCP/` — see `Adapter.cls`, `Host.cls`, `Registry.cls`, `Guardrails.cls`, `Invoker.cls`, `GeneratedTools.cls`, `MetaTools.cls`, `FileTools.cls`, and `docs/interop-mcp/architecture.md`.
