@@ -9,7 +9,7 @@
 - The adapter is **production-agnostic**: any Business Service annotated with `AIGATEWAY` / `AIGATEWAYDESC` / `REQUESTCLASS` becomes an AI tool automatically — the registry discovers them and generates `GeneratedTools`.
 - The agent reads the records its own production names — the restricted list, in this demo — with a file reading tool, and decides for itself which tools to call: run the risk assessment, or ask a human first.
 - Per-tool security classification (`readonly` / `write` / `critical`) and human-in-the-loop approval (`CreateWorkflowTask` → `Approvals.Approve`) govern every agent action; the approval is a native IRIS Workflow task, decided in the User Portal.
-- The hands-on below calls the agent over REST with a supplier invoice and reproduces both outcomes end to end on the test stack (REST 52775 / MCP 8083), following the request from the `202 Accepted` to the final answer.
+- The hands-on below calls the agent over REST with a supplier invoice and reproduces both outcomes end to end on the test stack (REST 52773 / MCP 8080), following the request from the `202 Accepted` to the final answer.
 
 ## Contents
 
@@ -212,7 +212,7 @@ The PDF travels Base64-encoded in the request body; the endpoint extracts its te
 ```bash
 PDF=src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-119.pdf
 b64=$(base64 -w0 "$PDF")
-curl -s -X POST http://localhost:52775/api/agent/assess \
+curl -s -X POST http://localhost:52773/api/agent/assess \
   -u mcp_demo:change-me \
   -H 'Content-Type: application/json' \
   -d "{\"Goal\":\"Evaluate the supplier of the attached document\",\"DocumentBase64\":\"${b64}\"}"
@@ -234,7 +234,7 @@ The response is HTTP **202 Accepted** — the request was accepted, not answered
 The caller polls the status endpoint:
 
 ```bash
-curl -s "http://localhost:52775/api/agent/status?invocationId=BE099310-E150-11F1-942B-D6049293574A" \
+curl -s "http://localhost:52773/api/agent/status?invocationId=BE099310-E150-11F1-942B-D6049293574A" \
   -u mcp_demo:change-me
 ```
 
@@ -305,7 +305,7 @@ Same call, different invoice. `INV-2026-120.pdf` names a supplier, `12.345.678/0
 ```bash
 PDF=src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-120.pdf
 b64=$(base64 -w0 "$PDF")
-curl -s -X POST http://localhost:52775/api/agent/assess \
+curl -s -X POST http://localhost:52773/api/agent/assess \
   -u mcp_demo:change-me \
   -H 'Content-Type: application/json' \
   -d "{\"Goal\":\"Evaluate the supplier of the attached document\",\"DocumentBase64\":\"${b64}\"}"
