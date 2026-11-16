@@ -1,20 +1,24 @@
 /// IRIS MCP Gateway - the demonstration's REST entry point for the agent.
 /// A web application of Type 2 (REST) at path /api/agent dispatches
 /// POST /api/agent/assess into this class, which hands the caller's goal to
-/// the agent's business host and returns the agent's answer.
-/// The endpoint is synchronous: the caller's request waits for the run.
+/// the production, and GET /api/agent/status back to the caller that waits
+/// for the outcome.
+/// The endpoint is asynchronous: it queues the caller's goal and answers as
+/// soon as the work is accepted, and the caller collects the outcome by
+/// polling. The production's inbound adapter is what picks the work up and
+/// runs it, so the endpoint never holds an HTTP connection for the length of
+/// an agent run.
 /// Responsibilities:
 /// - Read and validate the request. The goal is required and is never chosen
 ///   by the endpoint - an empty goal is answered with an error, never with a
 ///   goal the endpoint invented.
 /// - Extract the text of an attached PDF, when one is attached, with the
 ///   platform's embedded Python: the agent reads text, not binary.
-/// - Run the agent through its own business host, so that the run is recorded
-///   in the gateway's invocation store like every other invocation.
-/// - Answer with JSON, or with a diagnosable error.
-/// The endpoint reaches the agent the same way the gateway does - through the
-/// production's configuration item - so the run is guarded, audited and
-/// recorded exactly as a call through the MCP endpoint would be.
+/// - Record the run in the gateway's invocation store, like every other
+///   invocation, so that it can be audited and correlated with the agent's
+///   own record of what it did.
+/// - Queue the run and answer with the reference the caller polls.
+/// - Answer a polling call with the state of the run and its outcome.
 Class br.musketeers.InteropMCP.Demo.AgentRESTService Extends %CSP.REST
 {
 
@@ -39,17 +43,6 @@ Parameter MaxBodySize = 3600000;
 /// whole document.
 Parameter MaxDocumentText = 50000;
 
-/// <class>Ens.DataType.MessageStatus</class> values used for the message
-/// header this endpoint writes, so the run is visible in the Message Viewer
-/// with the outcome it actually reached. The header is created before the run
-/// and updated afterwards; the value must be the datatype's numeric code, not
-/// a display name, or the save fails validation.
-Parameter MsgStatusCreated = 1;
-
-Parameter MsgStatusCompleted = 9;
-
-Parameter MsgStatusError = 8;
-
 Parameter APPLICATION = "br.musketeers.InteropMCP.Demo.AgentRESTService";
 
 Parameter CHARSET = "utf-8";
@@ -58,12 +51,17 @@ Parameter CONTENTTYPE = "application/json";
 
 XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
 {
-    <Routes>
+<Routes>
     <Route Url="/assess" Method="POST" Call="AssessSupplier"/>
+    <Route Url="/status" Method="GET" Call="RunStatus"/>
     </Routes>
 }
 
-/// Runs the agent against the caller's goal and answers with its result.
+/// Queues the caller's goal for the agent and answers with the reference the
+/// caller polls. The work is not run here: the production's inbound adapter
+/// picks it up and hands it to the agent, and the caller collects the
+/// outcome from the invocation this call records.
+/// The answer is "202 Accepted": the work was accepted, not carried out.
 ClassMethod AssessSupplier() As %Status
 {
     Set tText = ..ReadBody()
@@ -128,120 +126,106 @@ ClassMethod AssessSupplier() As %Status
         Return $$$OK
     }
 
-    Set tResponse = ..RunAgent(tGoal, tInvocationId, .tSC)
+    // The work is queued for the production's adapter, together with the
+    // context that produced it: the caller's identity and the source it came
+    // from travel with the work, because they do not survive the boundary
+    // between this job and the one that runs it.
+    Set tQueueId = ""
+    Set tSC = ##class(br.musketeers.InteropMCP.Agent.Queue).Enqueue(tGoal, tInvocationId, $USERNAME, "REST", "", .tQueueId)
     If $$$ISERR(tSC) {
         Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(tInvocationId, "failed", "", $SYSTEM.Status.GetErrorText(tSC), 0)
-        Do ..WriteError(500, "The agent's run failed: "_$SYSTEM.Status.GetErrorText(tSC))
+        Do ..WriteError(500, "The work could not be queued: "_$SYSTEM.Status.GetErrorText(tSC))
         Return $$$OK
     }
 
+    Set tOut = ##class(%DynamicObject).%New()
+    Do tOut.%Set("status", "PENDING")
+    Do tOut.%Set("invocationId", tInvocationId)
+    Do tOut.%Set("queueId", tQueueId)
+    Do tOut.%Set("message", "The run was queued. Poll GET /api/agent/status?invocationId="_tInvocationId_" for the outcome.")
+    Do ..WriteDynamic(tOut, 202)
+    Return $$$OK
+}
+
+/// Answers a caller that waits for a run: the state of the run and, when it
+/// finished, its outcome. The state is one word - pending, running,
+/// completed or failed - so that a caller can poll it without having to know
+/// the two vocabularies the gateway keeps underneath: the queue's and the
+/// invocation's.
+ClassMethod RunStatus() As %Status
+{
+    Set tInvocationId = %request.Get("invocationId")
+    If tInvocationId = "" {
+        Do ..WriteError(400, "invocationId is required.")
+        Return $$$OK
+    }
+
+    Set tRowId = ##class(br.musketeers.InteropMCP.Invocations).GetRowId(tInvocationId)
+    If tRowId = "" {
+        Do ..WriteError(404, "No invocation carries that id.")
+        Return $$$OK
+    }
+    Set tInv = ##class(br.musketeers.InteropMCP.Invocations).%OpenId(tRowId)
+
+    // The queue says what the work item is doing; the invocation says what
+    // the run did. A work item that was abandoned never reaches a terminal
+    // invocation state, so the queue is what tells the caller that.
+    Set tQueueId = ""
+    Set tQueueStatus = ""
+    Set tQueueError = ""
+    Set tQueueSc = ##class(br.musketeers.InteropMCP.Agent.Queue).ByInvocation(tInvocationId, .tQueueId, .tQueueStatus, .tQueueError)
+
     Set tOut = ##class(br.musketeers.InteropMCP.Demo.AgentAssessResponse).%New()
-    Set tOut.Status = tResponse.Status
     Set tOut.InvocationId = tInvocationId
-    Set tOut.Answer = tResponse.Answer
-    Set tOut.CapabilitiesUsed = tResponse.CapabilitiesUsed
-    Set tOut.Retrievals = tResponse.Retrievals
+    Set tOut.Answer = ""
+    Set tOut.CapabilitiesUsed = "[]"
+    Set tOut.Retrievals = "[]"
+
+    Set tStatus = ..RunState(tInv.Status, tQueueStatus)
+    Set tAnswer = ""
+    If tInv.Result '= "" {
+        Try {
+            Set tResult = ##class(%DynamicObject).%FromJSON(tInv.Result)
+            Set tAnswer = tResult.%Get("Answer")
+            Set tCaps = tResult.%Get("CapabilitiesUsed")
+            If tCaps '= "" Set tOut.CapabilitiesUsed = tCaps
+            Set tRetr = tResult.%Get("Retrievals")
+            If tRetr '= "" Set tOut.Retrievals = tRetr
+        } Catch ex {
+            Set tIgnored = 1
+        }
+    }
+    If tInv.ErrorMessage '= "" {
+        Set tStatus = "failed"
+        If tAnswer = "" Set tAnswer = tInv.ErrorMessage
+    }
+    // The work item's own state has the last word on a run that never
+    // reached the agent: an abandoned item is a failure the invocation
+    // cannot know about.
+    If tQueueStatus = "ERROR" {
+        Set tStatus = "failed"
+        If tAnswer = "" Set tAnswer = tQueueError
+    }
+    Set tOut.Status = tStatus
+    Set tOut.Answer = tAnswer
     Do ..WriteJSON(tOut)
     Return $$$OK
 }
 
-/// Runs the agent through its own business host and returns its response.
-/// The host is the production's configuration item, reached the same way the
-/// gateway reaches it. A run that fails is reported through the status, not
-/// thrown: the endpoint answers with the reason.
-ClassMethod RunAgent(pGoal As %String, pInvocationId As %String, Output pSC As %Status) As br.musketeers.InteropMCP.Agent.Response
+/// Says where the run is, in one word. The work item's state is the
+/// authority while the work is in flight, because it is what says that the
+/// work was accepted and not yet picked up; the invocation's state is the
+/// authority once the run has answered.
+ClassMethod RunState(pInvocationStatus As %String, pQueueStatus As %String) As %String
 {
-    Set pSC = $$$OK
-    Set ^||InteropMCP.AgentIdentity = $USERNAME
-    Set ^||InteropMCP.Source = "REST"
-    Set tRequest = ##class(br.musketeers.InteropMCP.Agent.Request).%New()
-    Set tRequest.Goal = pGoal
-    Set tRequest.GatewayInvocationId = pInvocationId
-
-    // Save the request so it gets an ID for the message header.
-    Set tSC = tRequest.%Save()
-    If $$$ISERR(tSC) {
-        Set pSC = tSC
-        Quit ""
-    }
-
-    // The REST entry point is a gateway hop, not a production item. Its
-    // request/response pair is written explicitly so the run appears in the
-    // Message Viewer with the same session as the agent's tool calls.
-    Set tSessionId = +$Get(^||InteropMCP.SessionId, 0)
-    Set tMsgHeaderId = 0
-    Set tHeaderSC = ##class(br.musketeers.InteropMCP.HeaderAudit).CreateRequest("REST", ..#AgentHostItem, tRequest, .tSessionId, "REST agent run", .tMsgHeaderId)
-    If $$$ISERR(tHeaderSC) {
-        Set tHeaderData = ##class(%DynamicObject).%New()
-        Do tHeaderData.%Set("error", $System.Status.GetErrorText(tHeaderSC))
-        Do ##class(br.musketeers.InteropMCP.Log).Write("warn", "agent", "REST message header not created", tHeaderData)
-        Set tMsgHeaderId = 0
-    } Else {
-        Set ^||InteropMCP.SessionId = tSessionId
-    }
-
-    // Get the production business service instance and deliver through it.
-    Set tService = ""
-    Set pSC = ##class(Ens.Director).CreateBusinessService(..#AgentHostItem, .tService)
-    If $$$ISERR(pSC) {
-        Do ..FinishFailure(tMsgHeaderId, pSC, pInvocationId)
-        Quit ""
-    }
-    If '$IsObject(tService) {
-        Set pSC = $$$ERROR($$$GeneralError, "AgentHost service instance is null")
-        Do ..FinishFailure(tMsgHeaderId, pSC, pInvocationId)
-        Quit ""
-    }
-
-    Try {
-        Set tService.%SessionId = tSessionId
-    } Catch ex {
-        Set tIgnored = 1
-    }
-
-    Set tResponse = ""
-    Try {
-        Set pSC = tService.ProcessInput(tRequest, .tResponse)
-    } Catch ex {
-        Set pSC = $$$ERROR($$$GeneralError, ex.DisplayString())
-    }
-    If $$$ISERR(pSC) {
-        Set tResponse = ""
-        Do ..FinishFailure(tMsgHeaderId, pSC, pInvocationId)
-        Quit ""
-    }
-
-    If tMsgHeaderId {
-        Set tRespHeaderId = 0
-        Set tRespSC = ##class(br.musketeers.InteropMCP.HeaderAudit).CreateResponse(tMsgHeaderId, tResponse, 9, "", .tRespHeaderId)
-        If $$$ISERR(tRespSC) {
-            Set tHeaderData = ##class(%DynamicObject).%New()
-            Do tHeaderData.%Set("error", $System.Status.GetErrorText(tRespSC))
-            Do ##class(br.musketeers.InteropMCP.Log).Write("warn", "agent", "REST response header not created", tHeaderData)
-        }
-        Do ##class(br.musketeers.InteropMCP.HeaderAudit).Complete(tMsgHeaderId, 9)
-    }
-    Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(pInvocationId, "completed", "", "", tMsgHeaderId)
-    Return tResponse
-}
-
-/// Records a failed REST run against the request header and the invocation.
-ClassMethod FinishFailure(pHeaderId As %Integer, pSC As %Status, pInvocationId As %String) As %Status
-{
-    If pHeaderId {
-        Set respHeaderId = 0
-        Set respSC = ##class(br.musketeers.InteropMCP.HeaderAudit).CreateResponse(pHeaderId, "", 8, pSC, .respHeaderId)
-        If $$$ISERR(respSC) {
-            Set headerData = ##class(%DynamicObject).%New()
-            Do headerData.%Set("error", $System.Status.GetErrorText(respSC))
-            Do ##class(br.musketeers.InteropMCP.Log).Write("warn", "agent", "REST error response header not created", headerData)
-        }
-        Do ##class(br.musketeers.InteropMCP.HeaderAudit).Complete(pHeaderId, 8, pSC)
-    }
-    If pInvocationId '= "" {
-        Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(pInvocationId, "failed", "", $System.Status.GetErrorText(pSC), pHeaderId)
-    }
-    Quit $$$OK
+    If pQueueStatus = "PENDING" Quit "pending"
+    If pQueueStatus = "PROCESSING" Quit "running"
+    If pQueueStatus = "COMPLETED" Quit "completed"
+    If pQueueStatus = "ERROR" Quit "failed"
+    If pInvocationStatus = "executing" Quit "running"
+    If pInvocationStatus = "completed" Quit "completed"
+    If pInvocationStatus = "failed" Quit "failed"
+    Quit "pending"
 }
 
 /// Extracts the text of an attached PDF with the platform's embedded Python.
@@ -287,6 +271,15 @@ ClassMethod WriteJSON(pObject As %RegisteredObject) As %Status
     Set tJson.CapabilitiesUsed = ##class(%DynamicArray).%FromJSON(pObject.CapabilitiesUsed)
     Set tJson.Retrievals = ##class(%DynamicArray).%FromJSON(pObject.Retrievals)
     Write tJson.%ToJSON()
+    Quit $$$OK
+}
+
+/// Writes an answer whose shape is described by the caller itself.
+ClassMethod WriteDynamic(pObject As %DynamicObject, pStatus As %Integer = 200) As %Status
+{
+    Set %response.Status = pStatus
+    Set %response.ContentType = "application/json; charset=utf-8"
+    Write pObject.%ToJSON()
     Quit $$$OK
 }
 
