@@ -32,6 +32,7 @@ Thumbs.db
 *.crt
 *.pem
 ngrok.yml
+node_modules
 
 # Vídeo do tutorial (artefatos de gravação)
 demo-web/output/

@@ -1,5 +1,9 @@
 #!/bin/bash
-# Testa a API REST do agente (POST /api/agent/assess) e, opcionalmente, o MCP.
+# Testa a API REST do agente (POST /api/agent/assess e GET /api/agent/status)
+# e, opcionalmente, o MCP.
+#
+# A API e assincrona: o POST enfileira o trabalho e responde 202 Accepted com
+# a referencia da invocacao; o estado se coleta em GET /api/agent/status.
 #
 # Por padrão aponta para o stack de TESTE (porta 52775). Use --prod para a
 # porta canônica de produção (52773).
@@ -19,6 +23,7 @@ PDF="../src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-118.pdf"
 SKIP_PDF=0
 WITH_MCP=0
 TIMEOUT=300
+POLL_INTERVAL=3
 VERBOSE=0
 FAIL_FAST=0
 
@@ -74,7 +79,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-URL="http://${HOST}:${PORT}/api/agent/assess"
+ASSESS_URL="http://${HOST}:${PORT}/api/agent/assess"
+STATUS_URL="http://${HOST}:${PORT}/api/agent/status"
 MCP_URL="http://${HOST}:${MCP_PORT}/mcp"
 
 read_env_password() {
@@ -109,7 +115,7 @@ call_api() {
   local auth="$1" ctype="$2" data="$3" code
   local -a args=(
     -sS -o "$BODY_FILE" -D "$HEADER_FILE" -w '%{http_code}'
-    --max-time "$TIMEOUT" -X POST "$URL" -H "Content-Type: $ctype"
+    --max-time "$TIMEOUT" -X POST "$ASSESS_URL" -H "Content-Type: $ctype"
   )
   case "$auth" in
     valid) args+=(-H "Authorization: Basic $BASIC") ;;
@@ -117,6 +123,16 @@ call_api() {
     none)  ;;
   esac
   code=$(curl "${args[@]}" --data-binary "$data" 2>/dev/null) || code="000"
+  printf '%s' "$code"
+}
+
+# call_status <invocationId> — consulta o estado de uma invocação.
+call_status() {
+  local inv="$1" code
+  code=$(curl -sS -o "$BODY_FILE" -w '%{http_code}' \
+    --max-time 60 -X GET "${STATUS_URL}?invocationId=${inv}" \
+    -H "Accept: application/json" \
+    -H "Authorization: Basic $BASIC" 2>/dev/null) || code="000"
   printf '%s' "$code"
 }
 
@@ -185,7 +201,7 @@ summary() {
     local f
     for f in "${FAILURES[@]}"; do red "  - $f"; done
   fi
-  [ -n "$LAST_INVOCATION" ] && echo "Última InvocationId: ${LAST_INVOCATION}"
+  [ -n "$LAST_INVOCATION" ] && echo "Última InvocationId: $LAST_INVOCATION"
 }
 
 # ---------------------------------------------------------------- MCP smoke
@@ -211,7 +227,7 @@ mcp_tools_count() {
 }
 
 # ---------------------------------------------------------------- run
-echo "=== Teste da API REST: ${URL} ==="
+echo "=== Teste da API REST: ${ASSESS_URL} ==="
 echo "    usuário: ${USER_NAME}    perfil: ${PROFILE}"
 if [ "$PROFILE" = "prod" ]; then
   yellow "⚠ Perfil de PRODUÇÃO: cada POST cria uma invocação real."
@@ -239,18 +255,26 @@ expect_code "4) JSON sem Goal" 400 "$(call_api valid application/json '{"CNPJ":"
 # 5) Goal vazio
 expect_code "5) Goal vazio" 400 "$(call_api valid application/json '{"Goal":""}')"
 
-# 6) Goal válido
+# 6) Goal válido: a resposta é 202, o trabalho foi enfileirado.
 code=$(call_api valid application/json '{"Goal":"Avaliar o fornecedor do documento","CNPJ":"12.345.678/0001-90"}')
-status=$(json_field Status)
-inv=$(json_field InvocationId)
-answer=$(json_field Answer)
-if [ "$code" = "200" ] && [ -n "$status" ] && [ -n "$inv" ] && [ -n "$answer" ]; then
+status=$(json_field status)
+inv=$(json_field invocationId)
+queue=$(json_field queueId)
+if [ "$code" = "202" ] && [ "$status" = "PENDING" ] && [ -n "$inv" ] && [ -n "$queue" ]; then
   LAST_INVOCATION="$inv"
-  record "6) Goal válido" 1 "HTTP 200 (Status=${status})"
+  record "6) Goal válido" 1 "HTTP 202 (PENDING, queueId=${queue})"
 else
-  record "6) Goal válido" 0 "HTTP $code (Status='${status}' InvocationId='${inv}')"
+  record "6) Goal válido" 0 "HTTP $code (status='${status}' invocationId='${inv}')"
 fi
 show_body
+
+# 7) estado sem invocationId
+code=$(call_status "")
+expect_code "7) status sem invocationId" 400 "$code"
+
+# 8) estado de uma invocação inexistente
+code=$(call_status "00000000-0000-0000-0000-000000000000")
+expect_code "8) status de id desconhecido" 404 "$code"
 
 # 9) Content-Type (aproveita os headers da chamada anterior)
 ctype=$(response_ctype)
@@ -260,44 +284,61 @@ else
   record "9) Content-Type application/json" 0 "recebido: '${ctype:-<vazio>}'"
 fi
 
-# 7) Goal + PDF válido
+# 10) Goal + PDF válido: enfileira e o estado chega a "completed".
 if [ "$SKIP_PDF" -eq 1 ]; then
-  yellow "  – 7) PDF: pulado (--skip-pdf)"
+  yellow "  – 10) PDF: pulado (--skip-pdf)"
 elif [ ! -f "$PDF" ]; then
-  yellow "  – 7) PDF: pulado (arquivo não encontrado: $PDF)"
+  yellow "  – 10) PDF: pulado (arquivo não encontrado: $PDF)"
 else
   b64=$(base64 -w0 "$PDF")
   payload="{\"Goal\":\"Avaliar o fornecedor do documento anexo\",\"CNPJ\":\"12.345.678/0001-90\",\"DocumentBase64\":\"${b64}\"}"
   code=$(call_api valid application/json "$payload")
-  status=$(json_field Status)
-  inv=$(json_field InvocationId)
-  if [ "$code" = "200" ] && [ -n "$status" ] && [ -n "$inv" ]; then
+  inv=$(json_field invocationId)
+  if [ "$code" = "202" ] && [ -n "$inv" ]; then
     LAST_INVOCATION="$inv"
-    record "7) Goal + PDF" 1 "HTTP 200 (Status=${status})"
+    record "10) Goal + PDF (enfileirado)" 1 "HTTP 202 (invocationId=${inv})"
+    show_body
+
+    # Acompanha o estado até um estado final.
+    deadline=$(( $(date +%s) + TIMEOUT ))
+    final=""
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+      call_status "$inv" > /dev/null
+      st=$(json_field Status)
+      if [ "$st" = "completed" ] || [ "$st" = "failed" ]; then final="$st"; break; fi
+      sleep "$POLL_INTERVAL"
+    done
+    if [ "$final" = "completed" ]; then
+      record "11) Estado da run" 1 "completed"
+    elif [ "$final" = "failed" ]; then
+      record "11) Estado da run" 0 "failed"
+    else
+      record "11) Estado da run" 0 "sem estado final em ${TIMEOUT}s"
+    fi
   else
     err=$(json_field error | cut -c1-90)
-    record "7) Goal + PDF" 0 "HTTP $code (${err:-Status='${status}'})"
+    record "10) Goal + PDF" 0 "HTTP $code (${err:-invocationId vazio})"
   fi
   show_body
 
-  # 8) DocumentBase64 inválido (depende do módulo de PDF estar disponível)
+  # 12) DocumentBase64 inválido (depende do módulo de PDF estar disponível)
   nb64=$(printf 'isto nao e um pdf' | base64 -w0)
   code=$(call_api valid application/json "{\"Goal\":\"teste\",\"DocumentBase64\":\"${nb64}\"}")
   if [ "$code" = "400" ]; then
-    record "8) DocumentBase64 inválido" 1 "HTTP 400"
+    record "12) DocumentBase64 inválido" 1 "HTTP 400"
   else
-    record "8) DocumentBase64 inválido" 0 "HTTP $code (esperado 400)"
+    record "12) DocumentBase64 inválido" 0 "HTTP $code (esperado 400)"
   fi
   show_body
 fi
 
-# 10) MCP (opcional)
+# 13) MCP (opcional)
 if [ "$WITH_MCP" -eq 1 ]; then
   n=$(mcp_tools_count)
   if [ "$n" = "8" ]; then
-    record "10) MCP tools/list" 1 "${n} ferramentas"
+    record "13) MCP tools/list" 1 "${n} ferramentas"
   else
-    record "10) MCP tools/list" 0 "${n} ferramentas (esperado 8)"
+    record "13) MCP tools/list" 0 "${n} ferramentas (esperado 8)"
   fi
 fi
 

@@ -4,11 +4,12 @@
 
 - The IRIS agent now lives inside the Interoperability Production, exposed through a custom inbound adapter (`br.musketeers.InteropMCP.Agent.Adapter`).
 - The production item **is** the agent: it is reached through the same AI HUB / MCP gateway path as every other tool, with no bespoke endpoint to write — the demo's REST service exists only so an external caller can trigger it.
+- The adapter is a **polling** inbound adapter: the REST producer enqueues the request in a global queue and answers `202 Accepted`; the adapter picks the work item up inside the production and runs the agent there. The MCP path stays push — calling the agent tool over MCP runs it immediately, with no queue in between.
 - Built on the InterSystems **AI HUB** framework in ObjectScript: the custom adapter carries the SystemPrompt, the AgentTools scope, the production's own parameters, the timeout, and the model provider settings. Section 4 inventories every AI HUB class InteropMCP extends or depends on.
 - The adapter is **production-agnostic**: any Business Service annotated with `AIGATEWAY` / `AIGATEWAYDESC` / `REQUESTCLASS` becomes an AI tool automatically — the registry discovers them and generates `GeneratedTools`.
 - The agent reads the records its own production names — the restricted list, in this demo — with a file reading tool, and decides for itself which tools to call: run the risk assessment, or ask a human first.
 - Per-tool security classification (`readonly` / `write` / `critical`) and human-in-the-loop approval (`CreateWorkflowTask` → `Approvals.Approve`) govern every agent action; the approval is a native IRIS Workflow task, decided in the User Portal.
-- The hands-on below calls the agent over REST with a supplier invoice and reproduces both outcomes end to end on the test stack (REST 52773 / MCP 8080).
+- The hands-on below calls the agent over REST with a supplier invoice and reproduces both outcomes end to end on the test stack (REST 52775 / MCP 8083), following the request from the `202 Accepted` to the final answer.
 
 ## Contents
 
@@ -47,6 +48,19 @@ InteropMCP flips the model again. Instead of an external agent calling productio
 
 Removing the adapter changes nothing about the production itself (zero-regression requirement).
 
+### Two doors, one agent
+
+The same production item answers two very different callers, and the difference is worth spelling out because it is a design decision, not an accident:
+
+| | MCP tool call | REST call |
+|---|---|---|
+| Shape | **push** — the call runs the agent in the caller's thread | **pull** — the request is queued, the adapter picks it up |
+| Who executes | the MCP request thread, inside the same production | the adapter's own task, on its own schedule |
+| Latency | the caller waits for the answer | the caller gets `202 Accepted` and polls |
+| Why | a tool call is a conversation turn: the caller is waiting for the answer | an external HTTP client cannot hold a production task open for minutes |
+
+The MCP path stays as it was: `CreateBusinessService` + `ProcessInput`, straight into the agent's business host. The REST path is the one that goes through the queue, because an HTTP request has a deadline and an agent run does not. The queue is a global (`^InteropMCP.PromptQueue`), the adapter polls it once a second, and each work item carries the goal, the extracted document text, and the invocation id that ties the run back to the caller's poll.
+
 The diagram uses the **demo production** (`br.musketeers.InteropMCP.Demo.Production`) as a concrete example. This demo production exposes five Business Services — `PayLookupBS`, `CustomerUpdateBS`, `RiskCheckBS`, `AccountBlockBS`, and `BatchRunBS` — each annotated for AI exposure via class parameters (`AIGATEWAY`, `AIGATEWAYDESC`, `REQUESTCLASS`), plus an `AuditProcess` Business Process and `AuditOperation` Business Operation that provide native traceability.
 
 InteropMCP itself is **production-agnostic**: it is not tied to the demo and works with any InterSystems IRIS Interoperability Production whose Business Services carry the same annotations. The demo is used only to make the flow easier to understand; you can replace it with your own production and re-run `br.musketeers.InteropMCP.Registry.BuildCatalog` to generate the corresponding tools.
@@ -62,6 +76,7 @@ The core of the AI HUB integration lives in the **custom adapter** `br.musketeer
 | **ProductionConfig** | The production's own parameters, as a JSON object: the files its rules name, the records its agent must consult, the CNPJs to ignore. The gateway carries them into the agent's instructions and does not interpret the keys — they belong to the production. |
 | **Timeout** | How long the agent's reasoning loop may run (default 240s). |
 | **Model provider** | The AI provider and model used for reasoning, configured through the adapter's `ProviderConfig` setting. |
+| **PoolSize / CallInterval / LeaseSeconds** | How the adapter drains the work queue: how many runs may execute at once (the demo uses `1`, serializing them), how often it looks for new work (`1` second), and how long a claimed item may stay claimed before the adapter treats it as abandoned (`300` seconds) and reaps it. |
 
 These settings live on the production item and are read by the adapter at runtime — no code to touch when adjusting agent behavior. Just change the adapter's parameters and the agent picks them up on the next run.
 
@@ -186,40 +201,91 @@ The same custom adapter class (`br.musketeers.InteropMCP.Agent.Adapter`) works f
 - The InteropMCP test container is up and healthy.
 - Demo credential: user `mcp_demo` / password `change-me`.
 - Invoice fixtures: `src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-119.pdf` (supplier **not** restricted) and `INV-2026-120.pdf` (supplier restricted). Both carry the demo company's own CNPJ as the invoice recipient — the agent ignores it, as the production's `ignoredCnpjs` entry says.
+- The production's `AgentHost` item must be enabled and running: it is the adapter that drains the queue. If it is stopped, the `POST` still answers `202` and the status stays `pending` forever.
+
+The whole flow is scripted in `demo-web/`: `assess-pdf.sh` posts a PDF and polls until the run ends; `test-api.sh` walks the whole contract (auth, validation errors, enqueue, status, final state, and the MCP tool list). The commands below are the same calls, by hand.
 
 ### Step 1: a PDF whose CNPJ is not on the restricted list
 
-The PDF travels Base64-encoded in the request body; the endpoint extracts its text before the agent starts.
+The PDF travels Base64-encoded in the request body; the endpoint extracts its text before the agent starts — and then queues the run.
 
 ```bash
 PDF=src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-119.pdf
 b64=$(base64 -w0 "$PDF")
-curl -s -X POST http://localhost:52773/api/agent/assess \
+curl -s -X POST http://localhost:52775/api/agent/assess \
   -u mcp_demo:change-me \
   -H 'Content-Type: application/json' \
   -d "{\"Goal\":\"Evaluate the supplier of the attached document\",\"DocumentBase64\":\"${b64}\"}"
 ```
 
-The response is HTTP 200 with the run's outcome and the full trail of what the agent did:
+The response is HTTP **202 Accepted** — the request was accepted, not answered:
+
+```json
+{
+  "status": "PENDING",
+  "invocationId": "BE099310-E150-11F1-942B-D6049293574A",
+  "queueId": 12,
+  "message": "The run was queued. Poll GET /api/agent/status?invocationId=BE099310-E150-11F1-942B-D6049293574A for the outcome."
+}
+```
+
+`queueId` is the work item's number in the global queue (`^InteropMCP.PromptQueue`); `invocationId` is the row the whole run is audited under. From here on the agent runs **inside the production**: the adapter's own task polls the queue once a second, claims the item, and calls the agent's business host.
+
+The caller polls the status endpoint:
+
+```bash
+curl -s "http://localhost:52775/api/agent/status?invocationId=BE099310-E150-11F1-942B-D6049293574A" \
+  -u mcp_demo:change-me
+```
+
+which answers with one word — `pending` while the item waits in the queue, `running` once the agent has it, and a terminal state when the run ends:
+
+```json
+{
+  "Status": "running",
+  "InvocationId": "BE099310-E150-11F1-942B-D6049293574A",
+  "Answer": "",
+  "CapabilitiesUsed": [],
+  "Retrievals": []
+}
+```
+
+And when the run completes, the same endpoint returns the outcome and the full trail of what the agent did:
 
 ```json
 {
   "Status": "completed",
-  "InvocationId": "2B934933-E106-11F1-942B-D6049293574A",
-  "Answer": "**Supplier Identification** - Name: DORIO TRANSPORTE E LOGISTICA LTDA - CNPJ: **63.212.233/0001-78** - Read `restricted_cnpjs.txt` → Contains: `12.345.678/0001-95`, `98.765.432/0001-98`, `11.222.333/0001-81` - Supplier CNPJ `63.212.233/0001-78` **does not match** any restricted entry ...",
+  "InvocationId": "BE099310-E150-11F1-942B-D6049293574A",
+  "Answer": "**Supplier Assessment Result** - Supplier identified from the document: `DORIO TRANSPORTE E LOGISTICA LTDA` - CNPJ: `63.212.233/0001-78` - Read `restricted_cnpjs.txt` - contains `12.345.678/0001-95`, `98.765.432/0001-98`, `11.222.333/0001-81` - The supplier's CNPJ **is NOT** on the restricted list ... **Conclusion:** The supplier is cleared and the invoice may proceed to normal payment processing.",
   "CapabilitiesUsed": [
     {
       "tool": "ReadFile",
       "arguments": "{\"Path\":\"restricted_cnpjs.txt\"}",
-      "status": "completed"
+      "durationMs": 0,
+      "invocationId": "",
+      "approvalId": "",
+      "targetTool": "",
+      "messageHeaderId": 0,
+      "status": "completed",
+      "response": "",
+      "error": ""
     },
     {
       "tool": "RiskCheck",
       "arguments": "{\"Cnpj\":\"63.212.233/0001-78\"}",
-      "invocationId": "31757702-E106-11F1-942B-D6049293574A",
-      "messageHeaderId": 68,
+      "durationMs": 14,
+      "invocationId": "C7C8521D-E150-11F1-942B-D6049293574A",
+      "approvalId": "",
+      "targetTool": "",
+      "messageHeaderId": 177,
       "status": "completed",
-      "response": { "Status": "Approved", "Result": "Clear" }
+      "response": {
+        "$CLASSNAME": "br.musketeers.InteropMCP.Demo.RiskCheckResponse",
+        "%Concurrency": 1,
+        "Result": "Clear",
+        "Status": "Approved"
+      },
+      "error": ""
     }
   ],
   "Retrievals": []
@@ -227,6 +293,8 @@ The response is HTTP 200 with the run's outcome and the full trail of what the a
 ```
 
 Two things to read out of it. The agent read the restricted list **first** (`ReadFile`) and compared the supplier's CNPJ against it, exactly as the production's `ProductionConfig` instructed — the document it followed is the one in section 3. And `RiskCheck` ran straight through: no approval, no human in the loop. The `messageHeaderId` is the production message it left behind — `MCP → RiskCheckBS`.
+
+Two invocation ids appear in the same body, and the difference is the audit trail: the run's own id (`BE099310-…`), which is what the caller polls, and the tool call's id (`C7C8521D-…`), which is what the production traced. One run, one row per action.
 
 ![Message Viewer — the RiskCheck message in the production](img/article-3-step-06-msg-viewer-non-restricted.png)
 
@@ -237,21 +305,35 @@ Same call, different invoice. `INV-2026-120.pdf` names a supplier, `12.345.678/0
 ```bash
 PDF=src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-120.pdf
 b64=$(base64 -w0 "$PDF")
-curl -s -X POST http://localhost:52773/api/agent/assess \
+curl -s -X POST http://localhost:52775/api/agent/assess \
   -u mcp_demo:change-me \
   -H 'Content-Type: application/json' \
   -d "{\"Goal\":\"Evaluate the supplier of the attached document\",\"DocumentBase64\":\"${b64}\"}"
 ```
 
+The acceptance is identical — `202`, `status: PENDING`, a `queueId` and an `invocationId`:
+
+```json
+{
+  "status": "PENDING",
+  "invocationId": "38B6264A-E106-11F1-942B-D6049293574A",
+  "queueId": 13,
+  "message": "The run was queued. Poll GET /api/agent/status?invocationId=38B6264A-E106-11F1-942B-D6049293574A for the outcome."
+}
+```
+
+Polling it gives a run that **completed** — the agent finished its reasoning; what it finished with is a request for a human:
+
 ```json
 {
   "Status": "completed",
   "InvocationId": "38B6264A-E106-11F1-942B-D6049293574A",
-  "Answer": "**Restricted-list match:** The supplier CNPJ `12.345.678/0001-95` **is present** in the restricted list. ... **Status:** `held` – pending human approval - **Reason:** \"CNPJ is restricted - requires human approval before risk assessment\"",
+  "Answer": "**Supplier identification & risk check status** - Supplier CNPJ `12.345.678/0001-95` - ROBERIO JOSE DOS SANTOS - Match found: **Yes**, the supplier's CNPJ is on the restricted list ... **Action taken:** Because the supplier's CNPJ appears on the restricted list, the risk assessment cannot run automatically - a human-approval workflow has been triggered ... **Workflow status: held** - pending human approval",
   "CapabilitiesUsed": [
     {
       "tool": "ReadFile",
       "arguments": "{\"Path\":\"restricted_cnpjs.txt\"}",
+      "durationMs": 0,
       "status": "completed"
     },
     {
@@ -267,6 +349,8 @@ curl -s -X POST http://localhost:52773/api/agent/assess \
 ```
 
 Note what did **not** happen: there is no `RiskCheck` entry in `CapabilitiesUsed`. The agent read the same list as in step 1, matched the supplier's CNPJ against it, and decided on its own that the assessment must not run — so it asked for a human approval instead. The `RiskCheck` call it would have made is recorded (invocation `454C0AC6-…`) in state `pending-approval`, waiting to be released.
+
+Two states coexist here, and they are not the same thing: the **run** is `completed` (the agent did its job and said "a human must decide"), while the **held tool call** is `pending-approval`. The run being complete does not mean the assessment happened.
 
 The classification of `RiskCheck` is `write`, not `critical`: the approval did not come from the tool's security class, it came from the agent's reading of the list. A production that wants the tool itself to always require a human approval still has that option — `critical` does exactly that.
 
@@ -288,11 +372,31 @@ And the production now carries the message that was held until the human decided
 
 ![Message Viewer — the RiskCheck message, after the approval](img/article-3-step-06-msg-viewer-after-approval.png)
 
-The held invocation ends in state `completed`, and the operator's decision is the audit record of why it was allowed to run.
+The held invocation ends in state `completed`, and the operator's decision is the audit record of why it was allowed to run. From the terminal, the same approval is `Approvals.Approve("<approvalId>", "<approver>")`, and the outcome can be read back with the gateway's own `GetInvocationStatus` tool:
+
+```json
+{
+  "columns": ["InvocationId", "Status", "Result", "AgentIdentity"],
+  "rows": [
+    {
+      "InvocationId": "A10F7A6B-E106-11F1-942B-D6049293574A",
+      "Status": "completed",
+      "Result": "{\"Result\":\"Clear\",\"Status\":\"Approved\"}",
+      "AgentIdentity": "mcp_demo"
+    }
+  ]
+}
+```
+
+Note the `AgentIdentity`: the replayed call keeps the identity of the agent that asked for it, so an approval cannot launder one caller's work into another's.
+
+The queue is not involved in the approval. The held call is replayed by the approval itself, exactly as it would be for a tool called over MCP — the queue only decided *when* the agent's turn started.
 
 ## 7. What this means
 
 InteropMCP now lets you write an agent **directly in the production**, exposed by a custom inbound adapter. The adapter carries the AI HUB configuration (SystemPrompt, AgentTools scope, ProductionConfig, timeout, model provider), so you configure behavior without writing code. The same adapter works for **any production** — the Registry discovers annotated Business Services and publishes them as MCP tools generically. The REST endpoint extracts text from attached PDFs via Embedded Python so the agent reads document text. Per-tool classification and human-in-the-loop approval govern every action, with complete tracing through the Visual Trace and Message Viewer.
+
+The adapter being a **polling** inbound adapter is what makes the HTTP path honest: an agent run takes minutes, an HTTP request cannot wait that long, and pretending otherwise produces timeouts that look like failures. So the REST producer enqueues, answers `202`, and the caller polls a status endpoint that reports one word — `pending`, `running`, `completed`, `failed` — until the production has an answer. The MCP path needs none of it: a tool call is a conversation turn, so it stays push, and the caller simply waits for the result.
 
 The part worth carrying over to your own production is the one the two scenarios above show: the agent consults the records its own production names and **decides which tools to call**. The restricted list is not a rule the gateway enforces on the agent's behalf — it is a file the agent reads, and a human approval is what the agent asks for when what it read says a human should be asked. The gateway still guarantees that every action is classified, recorded and traceable.
 

@@ -1,5 +1,11 @@
 #!/bin/bash
-# Chama o agente (POST /api/agent/assess) passando um PDF.
+# Chama o agente (POST /api/agent/assess) passando um PDF e acompanha o
+# resultado (GET /api/agent/status).
+#
+# A chamada e assincrona: o POST enfileira o trabalho e responde 202 Accepted
+# com a referencia da invocacao; quem executa e o inbound adapter da
+# producao. O script então consulta o estado ate a run chegar a um estado
+# final.
 #
 # Versão simplificada do test-api.sh: faz apenas um cenário — Goal + PDF.
 # O prompt (Goal) é enviado em en-US.
@@ -15,10 +21,12 @@ USER_NAME="mcp_demo"
 PASSWORD="${INTEROPMCP_PWD:-}"
 PDF="../src/br/musketeers/InteropMCP/Demo/Invoices/INV-2026-118.pdf"
 TIMEOUT=300
+POLL_INTERVAL=3
 VERBOSE=0
 CNPJ=""
 
-URL="http://${HOST}:${PORT}/api/agent/assess"
+ASSESS_URL="http://${HOST}:${PORT}/api/agent/assess"
+STATUS_URL="http://${HOST}:${PORT}/api/agent/status"
 
 # ---------------------------------------------------------------- args
 usage() {
@@ -53,7 +61,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-URL="http://${HOST}:${PORT}/api/agent/assess"
+ASSESS_URL="http://${HOST}:${PORT}/api/agent/assess"
+STATUS_URL="http://${HOST}:${PORT}/api/agent/status"
 
 # ---------------------------------------------------------------- senha
 if [ -z "$PASSWORD" ]; then
@@ -96,30 +105,19 @@ BODY_FILE=$(mktemp)
 HEADER_FILE=$(mktemp)
 trap 'rm -f "$BODY_FILE" "$HEADER_FILE"' EXIT
 
-echo "=== Chamada ao agente: ${URL} ==="
+echo "=== Chamada ao agente: ${ASSESS_URL} ==="
 echo "    usuário: ${USER_NAME}    PDF: ${PDF}"
 echo
 
 CODE=$(curl -sS -o "$BODY_FILE" -D "$HEADER_FILE" -w '%{http_code}' \
-  --max-time "$TIMEOUT" -X POST "$URL" \
+  --max-time "$TIMEOUT" -X POST "$ASSESS_URL" \
   -H "Content-Type: application/json" \
   -H "Authorization: Basic $BASIC" \
   --data-binary "$PAYLOAD" 2>/dev/null) || CODE="000"
 
 echo "HTTP status: $CODE"
 
-if [ "$CODE" = "200" ]; then
-  if [ "$VERBOSE" -eq 1 ]; then
-    cat "$BODY_FILE"
-  else
-    python3 -c 'import sys,json
-d=json.load(sys.stdin)
-print("Status:", d.get("Status",""))
-print("InvocationId:", d.get("InvocationId",""))
-print("Answer:", d.get("Answer",""))' < "$BODY_FILE"
-  fi
-  exit 0
-else
+if [ "$CODE" != "200" ] && [ "$CODE" != "202" ]; then
   echo "❌ Falha na chamada ao agente."
   if [ "$VERBOSE" -eq 1 ]; then
     cat "$BODY_FILE"
@@ -128,10 +126,87 @@ else
 try:
     d=json.load(sys.stdin)
     print("Error:", d.get("error",""))
-    print("Status:", d.get("Status",""))
 except Exception:
     print(sys.stdin.read()[:500])' < "$BODY_FILE" 2>/dev/null || cat "$BODY_FILE"
   fi
   echo
   exit 1
 fi
+
+# O POST devolve a referência da invocacao: o trabalho foi aceito, nao
+# executado.
+INVOCATION=$(python3 -c 'import sys,json
+try:
+    d=json.load(sys.stdin)
+    print(d.get("invocationId") or d.get("InvocationId") or "")
+except Exception:
+    print("")' < "$BODY_FILE")
+
+if [ -z "$INVOCATION" ]; then
+  echo "❌ A resposta não traz a referência da invocação."
+  [ "$VERBOSE" -eq 1 ] && cat "$BODY_FILE"
+  exit 1
+fi
+
+echo "Invocação: ${INVOCATION}"
+echo "Acompanhando o estado (GET /api/agent/status)..."
+echo
+
+# ---------------------------------------------------------------- polling
+DEADLINE=$(( $(date +%s) + TIMEOUT ))
+LAST=""
+
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  CODE=$(curl -sS -o "$BODY_FILE" -w '%{http_code}' \
+    --max-time 60 -X GET "${STATUS_URL}?invocationId=${INVOCATION}" \
+    -H "Accept: application/json" \
+    -H "Authorization: Basic $BASIC" 2>/dev/null) || CODE="000"
+
+  if [ "$CODE" != "200" ]; then
+    echo "❌ A consulta de estado respondeu HTTP ${CODE}."
+    [ "$VERBOSE" -eq 1 ] && cat "$BODY_FILE"
+    exit 1
+  fi
+
+  STATE=$(python3 -c 'import sys,json
+try:
+    d=json.load(sys.stdin)
+    print(d.get("Status") or d.get("status") or "")
+except Exception:
+    print("")' < "$BODY_FILE")
+
+  if [ "$STATE" != "$LAST" ]; then
+    echo "  estado: ${STATE:-<desconhecido>}"
+    LAST="$STATE"
+  fi
+
+  case "$STATE" in
+    completed)
+      echo
+      python3 -c 'import sys,json
+d=json.load(sys.stdin)
+print("Status:", d.get("Status",""))
+print("InvocationId:", d.get("InvocationId",""))
+print("Answer:", d.get("Answer",""))' < "$BODY_FILE"
+      exit 0
+      ;;
+    failed)
+      echo
+      echo "❌ A run terminou com falha."
+      if [ "$VERBOSE" -eq 1 ]; then
+        cat "$BODY_FILE"
+      else
+        python3 -c 'import sys,json
+d=json.load(sys.stdin)
+print("Status:", d.get("Status",""))
+print("Answer:", d.get("Answer",""))' < "$BODY_FILE"
+      fi
+      exit 1
+      ;;
+  esac
+
+  sleep "$POLL_INTERVAL"
+done
+
+echo "❌ Tempo esgotado (${TIMEOUT}s) esperando a run."
+exit 1

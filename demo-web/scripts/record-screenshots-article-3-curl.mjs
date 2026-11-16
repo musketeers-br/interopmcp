@@ -42,6 +42,7 @@ const HEIGHT = 736;
 // Stack de teste
 const API_BASE = 'http://localhost:52775';
 const API_URL = `${API_BASE}/api/agent/assess`;
+const STATUS_URL = `${API_BASE}/api/agent/status`;
 const PORTAL_BASE = API_BASE;
 const PORTAL_LOGIN_URL = `${PORTAL_BASE}/csp/irisapp/EnsPortal.MessageViewer.zen`;
 const WORKFLOW_URL = `${PORTAL_BASE}/csp/irisapp/_DeepSee.UserPortal.Workflow.zen?$NAMESPACE=IRISAPP`;
@@ -210,7 +211,8 @@ function cleanupState() {
 // ---------- API REST ----------
 
 /// Chama POST /api/agent/assess com o PDF em Base64. Devolve o corpo JSON
-/// e o codigo HTTP.
+/// e o codigo HTTP. A resposta e "202 Accepted": o trabalho foi enfileirado,
+/// nao executado - quem executa e o inbound adapter da producao.
 function callApi(pdfPath, goal) {
   const b64 = execFileSync('base64', ['-w0', pdfPath], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const payload = JSON.stringify({ Goal: goal, DocumentBase64: b64 });
@@ -245,6 +247,60 @@ function callApi(pdfPath, goal) {
   } finally {
     rmSync(tmp, { force: true });
   }
+}
+
+/// Le o estado de uma invocacao: GET /api/agent/status?invocationId=...
+function callStatus(invocationId) {
+  const auth = Buffer.from(`${API_USER}:${apiPassword()}`).toString('base64');
+  const out = execFileSync(
+    'curl',
+    [
+      '-sS',
+      '-w',
+      '\n__HTTP_STATUS__%{http_code}',
+      '-X',
+      'GET',
+      `${STATUS_URL}?invocationId=${encodeURIComponent(invocationId)}`,
+      '-H',
+      'Content-Type: application/json',
+      '-H',
+      `Authorization: Basic ${auth}`,
+      '--max-time',
+      '60',
+    ],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
+  );
+  const marker = out.lastIndexOf('\n__HTTP_STATUS__');
+  const body = out.slice(0, marker);
+  const status = out.slice(marker + '\n__HTTP_STATUS__'.length).trim();
+  return { status, body };
+}
+
+/// Espera a invocacao chegar a um estado final, consultando o endpoint de
+/// estado. O endpoint responde com uma palavra: pending, running, completed
+/// ou failed.
+async function pollStatus(invocationId, timeoutMs = 300000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = '';
+  while (Date.now() < deadline) {
+    const r = callStatus(invocationId);
+    let parsed = {};
+    try {
+      parsed = JSON.parse(r.body);
+    } catch (e) {
+      parsed = {};
+    }
+    const st = parsed.Status || parsed.status || '';
+    if (st !== last) {
+      log(`  status: ${st || '(sem estado)'}`);
+      last = st;
+    }
+    if (st === 'completed' || st === 'failed') {
+      return { status: st, body: r.body };
+    }
+    await sleep(3000);
+  }
+  throw new Error(`A invocacao ${invocationId} nao chegou a um estado final`);
 }
 
 // ---------- Portal (User Portal) ----------
@@ -396,7 +452,17 @@ async function main() {
     console.log('\n===== RESPOSTA CASO NAO RESTRITO (' + nonRestricted.pdf + ') =====');
     console.log(r.body);
     console.log('===== FIM =====\n');
-    results[nonRestricted.slug] = { http: r.status, body: r.body };
+    let invId = '';
+    try {
+      invId = JSON.parse(r.body).invocationId || '';
+    } catch (e) {
+      invId = '';
+    }
+    const fin = await pollStatus(invId);
+    console.log('\n===== RESULTADO CASO NAO RESTRITO =====');
+    console.log(fin.body);
+    console.log('===== FIM =====\n');
+    results[nonRestricted.slug] = { http: r.status, body: r.body, invocationId: invId, final: fin };
   }
 
   // A mensagem da producao: o RiskCheck rodou.
@@ -413,7 +479,17 @@ async function main() {
     console.log('\n===== RESPOSTA CASO RESTRITO (' + restricted.pdf + ') =====');
     console.log(r.body);
     console.log('===== FIM =====\n');
-    results[restricted.slug] = { http: r.status, body: r.body };
+    let invId = '';
+    try {
+      invId = JSON.parse(r.body).invocationId || '';
+    } catch (e) {
+      invId = '';
+    }
+    const fin = await pollStatus(invId);
+    console.log('\n===== RESULTADO CASO RESTRITO =====');
+    console.log(fin.body);
+    console.log('===== FIM =====\n');
+    results[restricted.slug] = { http: r.status, body: r.body, invocationId: invId, final: fin };
   }
 
   const pending = findLatestPendingApproval();
@@ -446,8 +522,12 @@ async function main() {
   // Resumo para o artigo
   console.log('\n===== RESUMO =====');
   console.log('case nao restrito: HTTP ' + results[nonRestricted.slug].http);
+  console.log('  invocacao: ' + results[nonRestricted.slug].invocationId);
+  console.log('  estado final: ' + results[nonRestricted.slug].final.status);
   console.log('case restrito:    HTTP ' + results[restricted.slug].http);
-  console.log('invocationId (restrito): ' + pending.invocationId);
+  console.log('  invocacao: ' + results[restricted.slug].invocationId);
+  console.log('  estado final: ' + results[restricted.slug].final.status);
+  console.log('invocationIdheld (restrito): ' + pending.invocationId);
   console.log('approvalId  (restrito): ' + pending.approvalId);
   console.log('status apos aprovacao:  ' + status);
   console.log('================\n');

@@ -161,7 +161,7 @@ ClassMethod BuildAgentEntry(pProd As Ens.Config.Production, Output pToolName As 
     // offer a capability it cannot serve, and the operator is told why
     // instead of discovering it at the first call.
     Set settings = ""
-    Set sc = ##class(br.musketeers.InteropMCP.Agent.Adapter).ResolveSettings(pProd.Name, .settings)
+    Set sc = ##class(br.musketeers.InteropMCP.Agent.Adapter).ResolveSettings(pProd.Name, item.Name, .settings)
     If $$$ISERR(sc) {
         Set sc = $$$OK
     } Else {

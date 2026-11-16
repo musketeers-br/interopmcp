@@ -9,6 +9,7 @@ system, how traceability is produced, and how the container is deployed.
 flowchart LR
     subgraph Client
         A[MCP client / opencode]
+        A2[REST client / curl]
     end
     subgraph Bridge
         B[iris-mcp-server :8080<br/>config_http.toml]
@@ -25,12 +26,16 @@ flowchart LR
             I[CustomerUpdateBS / PayLookupBS /<br/>RiskCheckBS / AccountBlockBS / BatchRunBS]
             J[br.musketeers.InteropMCP.Demo.AuditProcess - BP]
             K[br.musketeers.InteropMCP.Demo.AuditOperation - BO]
+            S[br.musketeers.InteropMCP.Agent.Adapter<br/>polling inbound adapter]
+            T[br.musketeers.InteropMCP.Agent.Host<br/>business host]
+            V[br.musketeers.InteropMCP.Demo.AgentRESTService<br/>REST producer]
         end
         N[(Ens.MessageHeader<br/>Visual Trace)]
         O[(br.musketeers.InteropMCP.Invocations)]
         P[(br.musketeers.InteropMCP.Approvals)]
         Q[(^InteropMCP.LogD)]
         R[(^InteropMCP.Demo.AuditD)]
+        U[(^InteropMCP.PromptQueue<br/>work items)]
         W[br.musketeers.InteropMCP.WorkflowBridge]
         X[br.musketeers.InteropMCP.WorkflowTaskResponse]
     end
@@ -51,6 +56,12 @@ flowchart LR
     H -.-> O
     K -.-> R
     G & H -.-> Q
+    A2 -->|POST /api/agent/assess| V
+    V -->|enqueue| U
+    V -.-> O
+    S -->|claim item (1s poll)| U
+    S -->|ProcessInput| T
+    T -->|capability calls| G
 ```
 
 ### Layer responsibilities
@@ -61,6 +72,9 @@ flowchart LR
 | MCP endpoint | Web application `/mcp/interopmcp` (Type 18), `br.musketeers.InteropMCP.MCPService` | Dispatches MCP traffic into the AI HUB service bound to `SPECIFICATION = "br.musketeers.InteropMCP.ToolSet"` |
 | Tool catalog | `br.musketeers.InteropMCP.ToolSet` (static XData) + `br.musketeers.InteropMCP.GeneratedTools` (code-generated) + `br.musketeers.InteropMCP.InvocationStatusTools` | Declares the exposed tools: one generated ClassMethod per Business Service plus the status query |
 | Guardrails | `br.musketeers.InteropMCP.Guardrails` | Enforces the per-tool security classification on a single audited code path |
+| Agent adapter | `br.musketeers.InteropMCP.Agent.Adapter`, `br.musketeers.InteropMCP.Agent.Host` | Polling inbound adapter: drains the work queue, restores the run context, and executes the agent's business host inside the production |
+| Work queue | `br.musketeers.InteropMCP.Agent.Queue` (storage: `^InteropMCP.PromptQueue`) | Durable hand-off between an external producer and the adapter: enqueue, atomic claim, complete, reap abandoned items |
+| REST producer | `br.musketeers.InteropMCP.Demo.AgentRESTService` | Demo-only HTTP front door for the agent: extracts PDF text, creates the invocation, enqueues the work item, answers `202`; serves `GET /status` |
 | Workflow Bridge | `br.musketeers.InteropMCP.WorkflowBridge` | Links pending approvals to native IRIS Workflow tasks (`Ens.Workflow.Task`) surfaced in the Management Portal; creates `WorkflowTaskResponse` tasks that complete locally (no deferred response) |
 | Task Completion | `br.musketeers.InteropMCP.WorkflowTaskResponse` | Subclass of `EnsLib.Workflow.TaskResponse`; overrides `OnAction` to record decision in `Approvals` and close task locally — avoids `Ens.ErrProductionMismatchInDeferredResponse` |
 | Invocation | `br.musketeers.InteropMCP.Invoker` | Resolves the tool definition, instantiates the typed request, fires the Business Service |
@@ -108,6 +122,48 @@ For a call to `mcp_interopmcp_CustomerUpdate` with
 7. **Response.** The tool method returns `%Status`; the AI HUB layer serializes it into the
    MCP `tools/call` result (`isError: false` with `"1"` on success).
 
+### 2.1 The agent as a production item: pull and push
+
+The agent is a production item (`br.musketeers.InteropMCP.Agent.Adapter`), and two different
+callers reach it with two different shapes of request.
+
+| | MCP tool call (`mcp_interopmcp_AgentHost`) | REST call (`POST /api/agent/assess`) |
+|---|---|---|
+| Shape | **push** — the tool method calls the agent directly | **pull** — the request is queued, the adapter picks it up |
+| Who executes | the MCP request thread, inside the same production | the adapter's own task, on its own schedule |
+| Latency | the caller waits for the answer | the caller gets `202 Accepted` and polls |
+| Why | a tool call is a conversation turn | an external HTTP client cannot hold a production task open for minutes |
+
+The push path is the gateway path of section 2, unchanged: `CreateBusinessService` +
+`ProcessInput` into the agent's business host.
+
+The pull path exists because of a plain mismatch — an agent run takes minutes, an HTTP request
+has a deadline, and pretending otherwise produces timeouts that look like failures:
+
+1. **Producer.** `AgentRESTService.AssessSupplier` validates the body, extracts the PDF text
+   (Embedded Python), creates the invocation row, and enqueues a work item into
+   `^InteropMCP.PromptQueue` carrying the goal, the extracted document, the agent identity and
+   the invocation id.
+2. **Acceptance.** The producer answers `202 Accepted` with `{status: PENDING, invocationId,
+   queueId, message}`. The request was accepted, not answered.
+3. **Claim.** The adapter's task polls the queue once a second (`CallInterval`), and claims a
+   work item atomically (`LOCK` on the item node, lease stamped, released). `PoolSize` bounds
+   how many runs execute concurrently; the demo uses `1`, serializing them.
+4. **Run.** The adapter restores the run context, calls `..BusinessHost.ProcessInput(...)`,
+   and the agent reasons exactly as it does on the push path — same guardrails, same invocation
+   store, same approvals, same production messages.
+5. **Completion.** The adapter marks the item `COMPLETED` (or `ERROR`) and the invocation row
+   carries the outcome.
+6. **Poll.** `GET /api/agent/status?invocationId=...` answers with one word — `pending`,
+   `running`, `completed`, `failed` — and, once the run has answered, the full result.
+
+An item that is claimed and never completed (adapter restarted mid-run) is **reaped** after
+`LeaseSeconds` (default 300) and fails the run: a caller must never wait forever on a
+`pending` that no worker will ever pick up.
+
+The approval path is orthogonal to both shapes: a held tool call is replayed by
+`Approvals.Approve` / the Workflow task, never by the queue.
+
 ## 3. Traceability model
 
 There are two **separate** audit planes by design:
@@ -116,6 +172,13 @@ There are two **separate** audit planes by design:
 |-------|---------|------------|---------|
 | Production-native | `Ens.MessageHeader`, message store, Visual Trace, `^InteropMCP.Demo.AuditD` | The production components themselves (BS→BP→BO message flow) | Corporate audit of what the integration executed — the MCP has no part in it |
 | Gateway audit | `br.musketeers.InteropMCP.Invocations`, `br.musketeers.InteropMCP.Approvals`, `^InteropMCP.LogD` | The gateway code | Tool-call lifecycle: agent identity, parameters, guardrail decisions, approval records, durations |
+| Queue state | `^InteropMCP.PromptQueue` | The producer (enqueue) and the adapter (claim/complete) | Where a request sits between *accepted* and *finished* — the state a REST caller polls |
+
+**The join key is the invocation id.** A REST run and the tool calls it made are different
+invocation rows: `38B6264A-…` is the run the caller polls, `454C0AC6-…` is the `RiskCheck`
+call the production traced. The queue item carries the run's id, which is what lets the status
+endpoint find the work item, and what the approval replay keeps attached to the agent that
+asked for it (`AgentIdentity`).
 
 **Rule:** the MCP gateway only fires Business Services
 (`CreateBusinessService` + `ProcessInput`). It never reads or writes production structures
@@ -181,8 +244,14 @@ Notes:
   error).
 - **`$$$Trace` unavailable** — the interop trace macro is not defined for non-interop
   classes in this build; `br.musketeers.InteropMCP.Log` persists to `^InteropMCP.LogD` + console instead.
-- **`BatchRun` executes synchronously** — the async flag is recorded in the catalog and the
-  polling tool exists, but the queued-execution wiring (full sync-over-async) is future
-  work; today the long-running tool completes inline.
+- **`BatchRun` schedules, it does not block** — the async flag (`AIGATEWAYASYNC`) is honoured by
+  `Invoker.Invoke`, which calls `Ens.BusinessService.CallProcessInputAsync` and returns a
+  request reference; the invocation sits in state `executing` until the background job answers.
+- **The work queue is global** — `^InteropMCP.PromptQueue` is namespace-global, not
+  per-production, and items are keyed by a monotonically increasing counter. Two producers
+  sharing a namespace share the queue; the adapter drains what it finds.
+- **A queued run waits for the adapter** — if the `AgentHost` item is stopped, requests keep
+  being accepted (`202`) and stay `pending` until the adapter runs again. The lease reap
+  (`LeaseSeconds`) only covers items that were *claimed* and then abandoned.
 - **Member naming** — the UDL parser of this build rejects lowercase/underscore member
   names; all generated and hand-written members use CamelCase (see Troubleshooting).

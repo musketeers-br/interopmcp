@@ -42,7 +42,10 @@ Method OnProcessInput(pRequest As Ens.Request, Output pResponse As Ens.Response)
 	}
 
 	If reason = "" {
-		Set sc = ##class(br.musketeers.InteropMCP.Agent.Adapter).ResolveSettings(prodName, .settings)
+		// The configuration is resolved from the item this host runs as, not
+		// from a scan of the production for an item that happens to carry an
+		// agent adapter: each host owns the configuration of its own item.
+		Set sc = ##class(br.musketeers.InteropMCP.Agent.Adapter).ResolveSettings(prodName, ..%ConfigName, .settings)
 		If $$$ISERR(sc) Set reason = "The agent's configuration could not be resolved from the production."
 	}
 
@@ -63,6 +66,19 @@ Method OnProcessInput(pRequest As Ens.Request, Output pResponse As Ens.Response)
 	}
 
 	If reason = "" {
+		// The run has started: the invocation says so, so that a caller
+		// waiting on it can tell a run in progress from a run that was never
+		// picked up. The transition is best effort - the run must not fail
+		// because the bookkeeping did not go through.
+		If invocationId '= "" {
+			Set execSc = ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(invocationId, "executing", "", "", 0)
+			If $$$ISERR(execSc) {
+				Set execData = ##class(%DynamicObject).%New()
+				Do execData.%Set("invocationId", invocationId)
+				Do execData.%Set("error", $System.Status.GetErrorText(execSc))
+				Do ##class(br.musketeers.InteropMCP.Log).Write("warn", "agent", "The invocation could not be marked as running", execData)
+			}
+		}
 		Try {
 			Set policy = ##class(br.musketeers.InteropMCP.Agent.ToolAudit).%New()
 			Do agent.ToolManager.SetAuditPolicy(policy)
