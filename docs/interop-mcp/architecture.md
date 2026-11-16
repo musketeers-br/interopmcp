@@ -26,8 +26,8 @@ flowchart LR
             I[CustomerUpdateBS / PayLookupBS /<br/>RiskCheckBS / AccountBlockBS / BatchRunBS]
             J[br.musketeers.InteropMCP.Demo.AuditProcess - BP]
             K[br.musketeers.InteropMCP.Demo.AuditOperation - BO]
-            S[br.musketeers.InteropMCP.Agent.Adapter<br/>polling inbound adapter]
-            T[br.musketeers.InteropMCP.Agent.Host<br/>business host]
+            S[br.musketeers.InteropMCP.Agent.Adapter<br/>polling inbound adapter<br/>runs the agent]
+            T[br.musketeers.InteropMCP.Agent.Host<br/>business host<br/>delegates to the adapter]
             V[br.musketeers.InteropMCP.Demo.AgentRESTService<br/>REST producer]
         end
         N[(Ens.MessageHeader<br/>Visual Trace)]
@@ -60,8 +60,9 @@ flowchart LR
     V -->|enqueue| U
     V -.-> O
     S -->|claim item (1s poll)| U
-    S -->|ProcessInput| T
-    T -->|capability calls| G
+    T -->|ExecuteAgent (delegates the run)| S
+    S -->|capability calls| G
+    S -.-> O
 ```
 
 ### Layer responsibilities
@@ -72,7 +73,7 @@ flowchart LR
 | MCP endpoint | Web application `/mcp/interopmcp` (Type 18), `br.musketeers.InteropMCP.MCPService` | Dispatches MCP traffic into the AI HUB service bound to `SPECIFICATION = "br.musketeers.InteropMCP.ToolSet"` |
 | Tool catalog | `br.musketeers.InteropMCP.ToolSet` (static XData) + `br.musketeers.InteropMCP.GeneratedTools` (code-generated) + `br.musketeers.InteropMCP.InvocationStatusTools` | Declares the exposed tools: one generated ClassMethod per Business Service plus the status query |
 | Guardrails | `br.musketeers.InteropMCP.Guardrails` | Enforces the per-tool security classification on a single audited code path |
-| Agent adapter | `br.musketeers.InteropMCP.Agent.Adapter`, `br.musketeers.InteropMCP.Agent.Host` | Polling inbound adapter: drains the work queue, restores the run context, and executes the agent's business host inside the production |
+| Agent adapter | `br.musketeers.InteropMCP.Agent.Adapter`, `br.musketeers.InteropMCP.Agent.Host` | Polling inbound adapter that owns the agent's execution: drains the work queue, resolves the configuration, builds the agent, runs it and records the outcome. The business host owns no processing of its own — it forwards the goal to the adapter and hands the answer back |
 | Work queue | `br.musketeers.InteropMCP.Agent.Queue` (storage: `^InteropMCP.PromptQueue`) | Durable hand-off between an external producer and the adapter: enqueue, atomic claim, complete, reap abandoned items |
 | REST producer | `br.musketeers.InteropMCP.Demo.AgentRESTService` | Demo-only HTTP front door for the agent: extracts PDF text, creates the invocation, enqueues the work item, answers `202`; serves `GET /status` |
 | Workflow Bridge | `br.musketeers.InteropMCP.WorkflowBridge` | Links pending approvals to native IRIS Workflow tasks (`Ens.Workflow.Task`) surfaced in the Management Portal; creates `WorkflowTaskResponse` tasks that complete locally (no deferred response) |
@@ -130,12 +131,18 @@ callers reach it with two different shapes of request.
 | | MCP tool call (`mcp_interopmcp_AgentHost`) | REST call (`POST /api/agent/assess`) |
 |---|---|---|
 | Shape | **push** — the tool method calls the agent directly | **pull** — the request is queued, the adapter picks it up |
-| Who executes | the MCP request thread, inside the same production | the adapter's own task, on its own schedule |
+| Who executes | the adapter, on the production's own task | the adapter, on the production's own task |
 | Latency | the caller waits for the answer | the caller gets `202 Accepted` and polls |
 | Why | a tool call is a conversation turn | an external HTTP client cannot hold a production task open for minutes |
 
+Both shapes end in the same place: `Agent.Adapter.ExecuteAgent(...)` — the configuration is
+resolved, the agent is built by `Agent.Builder`, the run is executed, the capabilities are
+reported and the outcome is recorded in the invocation store. The business host owns no
+processing of its own: it forwards the goal to the adapter and hands the answer back, so the
+two doors cannot drift apart.
+
 The push path is the gateway path of section 2, unchanged: `CreateBusinessService` +
-`ProcessInput` into the agent's business host.
+`ProcessInput` into the agent's business host, which delegates to the adapter.
 
 The pull path exists because of a plain mismatch — an agent run takes minutes, an HTTP request
 has a deadline, and pretending otherwise produces timeouts that look like failures:
@@ -149,9 +156,10 @@ has a deadline, and pretending otherwise produces timeouts that look like failur
 3. **Claim.** The adapter's task polls the queue once a second (`CallInterval`), and claims a
    work item atomically (`LOCK` on the item node, lease stamped, released). `PoolSize` bounds
    how many runs execute concurrently; the demo uses `1`, serializing them.
-4. **Run.** The adapter restores the run context, calls `..BusinessHost.ProcessInput(...)`,
-   and the agent reasons exactly as it does on the push path — same guardrails, same invocation
-   store, same approvals, same production messages.
+4. **Run.** The adapter restores the run context — the caller's identity, the origin of the
+   work and the session — and calls `ExecuteAgent`, which resolves the configuration, builds
+   the agent and runs it. The agent reasons exactly as it does on the push path: same
+   guardrails, same invocation store, same approvals, same production messages.
 5. **Completion.** The adapter marks the item `COMPLETED` (or `ERROR`) and the invocation row
    carries the outcome.
 6. **Poll.** `GET /api/agent/status?invocationId=...` answers with one word — `pending`,

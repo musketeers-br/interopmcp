@@ -133,9 +133,8 @@ Method OnTask() As %Status
     Quit sc
 }
 
-/// Runs one queued item: restores the context that produced it, hands it to
-/// the business host that runs the agent, and records the outcome on the
-/// queue.
+/// Runs one queued item: restores the context that produced it, hands the
+/// goal to the agent, and records the outcome on the queue.
 Method Run(pEntry As %DynamicObject, pQueueId As %String) As %Status
 {
     Set sc = $$$OK
@@ -145,11 +144,8 @@ Method Run(pEntry As %DynamicObject, pQueueId As %String) As %Status
     Set source = pEntry.%Get("source")
     Set sessionId = pEntry.%Get("sessionId")
 
-    // The caller's identity and the session live in process-private globals
-    // and do not cross the boundary between the job that produced the work
-    // and the job that consumes it. The context travels with the work and is
-    // restored here, so that the agent's own calls are attributed to the
-    // caller that started the run, and the run's trace belongs to it.
+    // Restore the caller's context so the agent's own calls are attributed
+    // to the caller that started the run, and the run's trace belongs to it.
     If agentIdentity '= "" Set ^||InteropMCP.AgentIdentity = agentIdentity
     If source '= "" Set ^||InteropMCP.Source = source
     // Each run belongs to its own session: the polling job is long-lived, so
@@ -160,29 +156,22 @@ Method Run(pEntry As %DynamicObject, pQueueId As %String) As %Status
         Kill ^||InteropMCP.SessionId
     }
 
-    Set request = ##class(br.musketeers.InteropMCP.Agent.Request).%New()
-    Set request.Goal = goal
-    Set request.GatewayInvocationId = invocationId
-
+    // The adapter runs the agent: the configuration is resolved from the item
+    // the adapter belongs to, and the outcome is recorded in the invocation
+    // store by the run itself.
     Set response = ""
-    Try {
-        Set sc = ..BusinessHost.ProcessInput(request, .response)
-    } Catch ex {
-        Set sc = ex.AsStatus()
-    }
+    Set sc = ..ExecuteAgent(..BusinessHost.%ConfigName, goal, invocationId, source, .response)
 
     If $$$ISERR(sc) {
-        Set reason = $SYSTEM.Status.GetErrorText(sc)
-        // The host records the reason in the response before it raises the
-        // failure, so the queue carries the reason and not just a status.
+        Set reason = ""
         If $IsObject(response) {
             Try {
-                Set answer = response.Answer
-                If answer '= "" Set reason = answer
+                Set reason = response.Answer
             } Catch ex {
-                Set tIgnored = 1
+                Set reason = ""
             }
         }
+        If reason = "" Set reason = $SYSTEM.Status.GetErrorText(sc)
         Set logData = ##class(%DynamicObject).%New()
         Do logData.%Set("queueId", pQueueId)
         Do logData.%Set("invocationId", invocationId)
@@ -200,11 +189,250 @@ Method Run(pEntry As %DynamicObject, pQueueId As %String) As %Status
     Quit sc
 }
 
+/// Runs the agent against a goal and records the outcome. This is the whole
+/// of the agent's execution: the configuration is resolved from the item the
+/// agent runs as, the agent is built from that configuration, the run is
+/// executed, the capabilities the agent invoked are reported, and the outcome
+/// is recorded in the invocation store.
+/// Both doors of the production item reach the agent through this method: the
+/// adapter, for the work it polls out of the queue, and the business host,
+/// for a call that reaches the business service directly. One implementation,
+/// so the two cannot drift apart.
+/// Outputs pResponse: the agent's response - its answer, the capabilities it
+/// invoked, and the outcome of the run. A run that failed carries the reason
+/// as its answer, and the returned status is the failure.
+ClassMethod ExecuteAgent(pConfigName As %String, pGoal As %String, pInvocationId As %String, pSource As %String, Output pResponse As Ens.Response) As %Status
+{
+    Set sc = $$$OK
+    Set started = $ZH
+    Set answer = ""
+    Set status = "completed"
+    Set reason = ""
+    Set policy = ""
+    Set agent = ""
+    Set sessionConfig = ""
+
+    // The origin of the work and the identity of the caller are the context
+    // the agent's own calls are attributed to. The door that opened the run
+    // names the origin; the identity is already set by the caller when there
+    // is one.
+    If pSource '= "" Set ^||InteropMCP.Source = pSource
+    If $Get(^||InteropMCP.AgentIdentity) = "" Set ^||InteropMCP.AgentIdentity = $USERNAME
+
+    // Resolve the agent's configuration from the item it runs as: each host
+    // owns the configuration of its own item.
+    Set prodName = ##class(br.musketeers.InteropMCP.Registry).GetActiveProduction()
+    Set settings = ""
+    Set sc = ..ResolveSettings(prodName, pConfigName, .settings)
+    If $$$ISERR(sc) {
+        Set reason = "The agent's configuration could not be resolved from the production."
+    }
+
+    If reason = "" {
+        Set sc = ##class(br.musketeers.InteropMCP.Agent.Builder).Build(settings, .agent, .sessionConfig)
+        If $$$ISERR(sc) Set reason = "The agent could not be built from the adapter's configuration."
+    }
+
+    If reason = "" {
+        // The run has started: the invocation says so, so that a caller
+        // waiting on it can tell a run in progress from a run that was never
+        // picked up. The transition is best effort - the run must not fail
+        // because the bookkeeping did not go through.
+        If pInvocationId '= "" {
+            Set execSc = ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(pInvocationId, "executing", "", "", 0)
+            If $$$ISERR(execSc) {
+                Set execData = ##class(%DynamicObject).%New()
+                Do execData.%Set("invocationId", pInvocationId)
+                Do execData.%Set("error", $System.Status.GetErrorText(execSc))
+                Do ##class(br.musketeers.InteropMCP.Log).Write("warn", "agent", "The invocation could not be marked as running", execData)
+            }
+        }
+        Try {
+            Set policy = ##class(br.musketeers.InteropMCP.Agent.ToolAudit).%New()
+            Do agent.ToolManager.SetAuditPolicy(policy)
+            Set session = agent.CreateSession(sessionConfig)
+            Set llmResponse = agent.Run(session, pGoal)
+            Set answer = llmResponse.Content
+        } Catch ex {
+            Set reason = "The agent could not complete the run: "_ex.DisplayString()
+        }
+    }
+
+    // Build the caller-facing report of what the agent did.
+    Set caps = ##class(%DynamicArray).%New()
+    If $IsObject(policy) {
+        Set capSc = ..BuildCapabilities(policy, .caps)
+        If $$$ISERR(capSc) Set caps = ##class(%DynamicArray).%New()
+    }
+    Set response = ##class(br.musketeers.InteropMCP.Agent.Response).%New()
+    Set response.CapabilitiesUsed = caps.%ToJSON()
+    Set response.Retrievals = "[]"
+
+    Set logData = ##class(%DynamicObject).%New()
+    Do logData.%Set("production", prodName)
+    Set adapterItem = ""
+    If $IsObject(settings) {
+        Try {
+            Set adapterItem = settings.%Get("AdapterItem")
+        } Catch ex {
+            Set adapterItem = ""
+        }
+    }
+    Do logData.%Set("adapterItem", adapterItem)
+    Do logData.%Set("elapsedMs", ($ZH - started) * 100)
+    Do logData.%Set("goalLength", $Length(pGoal))
+
+    If reason '= "" {
+        Set status = "failed"
+        Set response.Status = status
+        Set response.Answer = reason
+        Do logData.%Set("status", status)
+        Do logData.%Set("reason", reason)
+        Do ##class(br.musketeers.InteropMCP.Log).Write("error", "agent", "Agent run failed", logData)
+        // The run may be performing in a background job, in which case this is
+        // the only place the outcome reaches the invocation the caller polls.
+        If pInvocationId '= "" {
+            Set respDyn = ##class(%Library.DynamicObject).%FromObject(response)
+            Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(pInvocationId, "failed", respDyn, reason, 0)
+        }
+        Set pResponse = response
+        Quit $$$ERROR($$$GeneralError, reason)
+    }
+
+    Set response.Status = status
+    Set response.Answer = answer
+    Do logData.%Set("status", status)
+    Do ##class(br.musketeers.InteropMCP.Log).Write("info", "agent", "Agent run completed", logData)
+    // The run may be performing in a background job: this is where the answer
+    // reaches the invocation the caller is polling.
+    If pInvocationId '= "" {
+        Set respDyn = ##class(%Library.DynamicObject).%FromObject(response)
+        Do ##class(br.musketeers.InteropMCP.Invocations).UpdateStatus(pInvocationId, "completed", respDyn, "", 0)
+    }
+    Set pResponse = response
+    Quit sc
+}
+
+/// Builds the caller-facing report of the capabilities the agent invoked.
+/// The audit policy records the call; the invocation store is the authority on
+/// what happened to it. Each entry therefore carries the tool and arguments the
+/// agent supplied, plus the lifecycle state and result the production recorded.
+ClassMethod BuildCapabilities(pPolicy As br.musketeers.InteropMCP.Agent.ToolAudit, Output pCaps As %DynamicArray) As %Status
+{
+	Set pCaps = ##class(%DynamicArray).%New()
+	If '$IsObject(pPolicy) Quit $$$OK
+	Set calls = pPolicy.Calls
+	If '$IsObject(calls) Quit $$$OK
+
+	Set iter = calls.%GetIterator()
+	While iter.%GetNext(.idx, .call) {
+		Set entry = {}
+		Do entry.%Set("tool", call.tool)
+		Do entry.%Set("arguments", call.arguments)
+		Do entry.%Set("durationMs", +call.durationMs)
+		Do entry.%Set("invocationId", "")
+		Do entry.%Set("approvalId", "")
+		Do entry.%Set("targetTool", "")
+		Do entry.%Set("messageHeaderId", 0)
+		Do entry.%Set("status", "")
+		Do entry.%Set("response", "")
+		Do entry.%Set("error", "")
+
+		Set resultJson = call.resultJson
+		If resultJson '= "" {
+			Set result = ""
+			Try {
+				Set result = ##class(%DynamicObject).%FromJSON(resultJson)
+			} Catch ex {
+				Set result = ""
+			}
+			If $IsObject(result) {
+				Set invocationId = result.%Get("invocationId")
+				If invocationId '= "" Do entry.%Set("invocationId", invocationId)
+				Set approvalId = result.%Get("approvalId")
+				If approvalId '= "" Do entry.%Set("approvalId", approvalId)
+				Set toolStatus = result.%Get("_status")
+				If toolStatus '= "" Do entry.%Set("status", toolStatus)
+			}
+		}
+
+		// CreateWorkflowTask is a meta tool: the invocation it produced belongs
+		// to the target capability, not to the request for approval.
+		If call.tool = "CreateWorkflowTask" {
+			Set targetTool = ""
+			Try {
+				Set targetTool = call.arguments.%Get("pToolName")
+			} Catch ex {
+				Set targetTool = ""
+			}
+			If targetTool '= "" Do entry.%Set("targetTool", targetTool)
+		}
+
+		Set invocationId = entry.%Get("invocationId")
+		If invocationId '= "" {
+			Set inv = ..OpenInvocation(invocationId)
+			If $IsObject(inv) {
+				Do entry.%Set("status", inv.Status)
+				Do entry.%Set("messageHeaderId", +inv.MessageHeaderId)
+				If inv.ErrorMessage '= "" Do entry.%Set("error", inv.ErrorMessage)
+				If inv.Result '= "" {
+					Set response = inv.Result
+					Try {
+						Set response = ##class(%DynamicObject).%FromJSON(inv.Result)
+					} Catch ex {
+						Set response = inv.Result
+					}
+					Do entry.%Set("response", response)
+				}
+			}
+		}
+
+		If entry.%Get("status") = "" {
+			If call.ok {
+				Do entry.%Set("status", "completed")
+			} Else {
+				Do entry.%Set("status", "failed")
+			}
+		}
+		If entry.%Get("status") = "denied" Do entry.%Set("error", call.error)
+		Do pCaps.%Push(entry)
+	}
+	Do ..TrimCapabilities(.pCaps)
+	Quit $$$OK
+}
+
+ClassMethod OpenInvocation(pInvocationId As %String) As br.musketeers.InteropMCP.Invocations
+{
+	Set rid = ##class(br.musketeers.InteropMCP.Invocations).GetRowId(pInvocationId)
+	If rid = "" Quit ""
+	Quit ##class(br.musketeers.InteropMCP.Invocations).%OpenId(rid)
+}
+
+/// Keeps the agent's response inside the audit store's string budget. The full
+/// tool responses remain in each tool invocation; the run-level summary keeps a
+/// marker instead of silently losing the whole entry.
+ClassMethod TrimCapabilities(ByRef pCaps As %DynamicArray) As %Status
+{
+	If '$IsObject(pCaps) Quit $$$OK
+	If $Length(pCaps.%ToJSON()) <= 30000 Quit $$$OK
+	Set iter = pCaps.%GetIterator()
+	While iter.%GetNext(.idx, .entry) {
+		Do entry.%Set("truncated", 1)
+		Do entry.%Set("response", "")
+		If $Length(pCaps.%ToJSON()) <= 30000 Quit
+	}
+	Quit $$$OK
+}
+
 /// Writes an operational event about the adapter's own work.
-Method WriteLog(pLevel As %String, pMessage As %String, pStatus As %Status, pData As %DynamicObject = "") As %Status
+/// pStatus is the status of the operation the event reports, and may be
+/// empty: an empty status means "nothing to report", not a failure.
+ClassMethod WriteLog(pLevel As %String, pMessage As %String, pStatus As %Status, pData As %DynamicObject = "") As %Status
 {
     If '$IsObject(pData) Set pData = ##class(%DynamicObject).%New()
-    If $$$ISERR(pStatus) Do pData.%Set("status", $SYSTEM.Status.GetErrorText(pStatus))
+    // An empty status is not an error: reporting one would put a failure
+    // where the event describes a success.
+    If (pStatus '= "") && ($$$ISERR(pStatus)) Do pData.%Set("status", $SYSTEM.Status.GetErrorText(pStatus))
     Do ##class(br.musketeers.InteropMCP.Log).Write(pLevel, "adapter", pMessage, pData)
     Quit $$$OK
 }
