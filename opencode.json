@@ -15,7 +15,7 @@
       "enabled": true,
       "environment": {
         "IRIS_HOST": "localhost",
-        "IRIS_WEB_PORT": "52775",
+        "IRIS_WEB_PORT": "52773",
         "IRIS_USERNAME": "_SYSTEM",
         "IRIS_PASSWORD": "SYS",
         "IRIS_NAMESPACE": "IRISAPP"
@@ -23,7 +23,7 @@
     },
     "InteropMCP": {
       "type": "remote",
-      "url": "http://localhost:8083/mcp",
+      "url": "http://localhost:8080/mcp",
       "headers": {
         "Authorization": "{env:INTEROPMCP_BASIC}"
       },
