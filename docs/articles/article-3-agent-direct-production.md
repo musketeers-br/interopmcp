@@ -43,7 +43,7 @@ InteropMCP flips the model again. Instead of an external agent calling productio
 1. A production item of adapter class `br.musketeers.InteropMCP.Agent.Adapter` is added to the production.
 2. The registry (`br.musketeers.InteropMCP.Registry`) discovers it and publishes an **agent entry** in the MCP tool catalog.
 3. An AI agent calls the agent tool by natural language (e.g. *"assess the risk of supplier with CNPJ 12.345.678/0001-90"*).
-4. The agent's business host (`br.musketeers.InteropMCP.Agent.Host`) runs the reasoning loop inside the production, using the same guardrail, invocation, and approval path as every other tool.
+4. The agent's adapter (`br.musketeers.InteropMCP.Agent.Adapter`) runs the reasoning loop inside the production, using the same guardrail, invocation, and approval path as every other tool. The business host that carries it (`br.musketeers.InteropMCP.Agent.Host`) owns no processing of its own — it forwards the goal to the adapter and hands the answer back, so the two doors (the gateway's direct call and the adapter's polling) can never drift apart.
 5. When the agent invokes a capability (e.g. `RiskCheck`), the call goes through `Guardrails.Check` and `Invoker.Invoke` to the target Business Service — creating `Ens.MessageHeader` rows and a Visual Trace exactly as before.
 
 Removing the adapter changes nothing about the production itself (zero-regression requirement).
@@ -55,11 +55,13 @@ The same production item answers two very different callers, and the difference 
 | | MCP tool call | REST call |
 |---|---|---|
 | Shape | **push** — the call runs the agent in the caller's thread | **pull** — the request is queued, the adapter picks it up |
-| Who executes | the MCP request thread, inside the same production | the adapter's own task, on its own schedule |
+| Who executes | the adapter, on the production's own task | the adapter, on the production's own task |
 | Latency | the caller waits for the answer | the caller gets `202 Accepted` and polls |
 | Why | a tool call is a conversation turn: the caller is waiting for the answer | an external HTTP client cannot hold a production task open for minutes |
 
-The MCP path stays as it was: `CreateBusinessService` + `ProcessInput`, straight into the agent's business host. The REST path is the one that goes through the queue, because an HTTP request has a deadline and an agent run does not. The queue is a global (`^InteropMCP.PromptQueue`), the adapter polls it once a second, and each work item carries the goal, the extracted document text, and the invocation id that ties the run back to the caller's poll.
+Both shapes meet in the same place — the adapter builds the agent from its configuration and runs it — so the two cannot drift apart. The business host that carries the adapter owns no processing of its own: it forwards the goal and hands the answer back.
+
+The MCP path stays as it was: `CreateBusinessService` + `ProcessInput`, straight into the agent's business host. The REST path is the one that goes through the queue, because an HTTP request has a deadline and an agent run does not. The queue is a global (`^InteropMCP.PromptQueue`), the adapter polls it once a second, and each work item carries the goal, the extracted document text, and the invocation id that ties the run back to the caller's poll. Both paths then meet in the same place — the adapter builds the agent from its configuration and runs it.
 
 The diagram uses the **demo production** (`br.musketeers.InteropMCP.Demo.Production`) as a concrete example. This demo production exposes five Business Services — `PayLookupBS`, `CustomerUpdateBS`, `RiskCheckBS`, `AccountBlockBS`, and `BatchRunBS` — each annotated for AI exposure via class parameters (`AIGATEWAY`, `AIGATEWAYDESC`, `REQUESTCLASS`), plus an `AuditProcess` Business Process and `AuditOperation` Business Operation that provide native traceability.
 
@@ -82,7 +84,7 @@ These settings live on the production item and are read by the adapter at runtim
 
 The Management Portal is where you edit them. On the demo production, the settings panel of the `AgentHost` item is the agent's whole configuration — its document, its model and provider, its effort and time bounds, and the paths it reads:
 
-![Management Portal — the adapter settings of the AgentHost item on the demo production](img/article-3-step-03-adapter-settings.png)
+![Management Portal — the adapter settings of the AgentHost item on the demo production](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-03-adapter-settings.png)
 
 ### The agent's document, in full
 
@@ -149,9 +151,9 @@ The AI HUB is the substrate: it provides the protocol, the tool surface, and the
 
 | Class | Used in | For what |
 |---|---|---|
-| `%AI.Agent` | `Agent/Builder`, `Agent/Host` | The run loop: `%Init` → `CreateSession` → `Run` |
+| `%AI.Agent` | `Agent/Builder`, `Agent/Adapter` | The run loop: `%Init` → `CreateSession` → `Run` |
 | `%AI.Provider` | `Agent/Builder` | `.Create(name, settings)` — model + credential |
-| `%AI.ToolMgr` | `Agent/Host` (via `agent.ToolManager`) | Tool registry + `SetAuditPolicy` |
+| `%AI.ToolMgr` | `Agent/Adapter` (via `agent.ToolManager`) | Tool registry + `SetAuditPolicy` |
 | `%AI.Utils.SettingStore` | `Agent/Builder` | `Expand()` — resolves `@{env:...}` placeholders |
 | `%AI.Utils.Text` | `Agent/ToolAudit` | `StripControlChars` on audit entries |
 
@@ -171,7 +173,7 @@ Two distinct toolsets: the MCP endpoint surface (`GeneratedTools` + `InvocationS
 
 #### `%AI.Policy.Audit` — the audit hook
 
-`Agent/ToolAudit` overrides the two hooks and logs every call in order; the `Host` attaches the policy to the `ToolManager` at run start. This produces the `CapabilitiesUsed` array in the response.
+`Agent/ToolAudit` overrides the two hooks and logs every call in order; the adapter attaches the policy to the `ToolManager` at run start. This produces the `CapabilitiesUsed` array in the response.
 
 #### `%AI.Utils.SettingStore` — credential references
 
@@ -229,7 +231,7 @@ The response is HTTP **202 Accepted** — the request was accepted, not answered
 }
 ```
 
-`queueId` is the work item's number in the global queue (`^InteropMCP.PromptQueue`); `invocationId` is the row the whole run is audited under. From here on the agent runs **inside the production**: the adapter's own task polls the queue once a second, claims the item, and calls the agent's business host.
+`queueId` is the work item's number in the global queue (`^InteropMCP.PromptQueue`); `invocationId` is the row the whole run is audited under. From here on the agent runs **inside the production**: the adapter's own task polls the queue once a second, claims the item, and runs the agent there.
 
 The caller polls the status endpoint:
 
@@ -296,7 +298,7 @@ Two things to read out of it. The agent read the restricted list **first** (`Rea
 
 Two invocation ids appear in the same body, and the difference is the audit trail: the run's own id (`BE099310-…`), which is what the caller polls, and the tool call's id (`C7C8521D-…`), which is what the production traced. One run, one row per action.
 
-![Message Viewer — the RiskCheck message in the production](img/article-3-step-06-msg-viewer-non-restricted.png)
+![Message Viewer — the RiskCheck message in the production](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-msg-viewer-non-restricted.png)
 
 ### Step 2: a PDF whose CNPJ is on the restricted list
 
@@ -358,19 +360,19 @@ The classification of `RiskCheck` is `write`, not `critical`: the approval did n
 
 The approval is a native IRIS Workflow task. It lands in the User Portal Workflow inbox, under the `Operators` role, with the approval id as its subject:
 
-![Workflow inbox — the pending approval](img/article-3-step-06-workflow-inbox.png)
+![Workflow inbox — the pending approval](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-workflow-inbox.png)
 
 Opening it shows the subject, the reason the agent gave, and the action buttons:
 
-![Workflow task details — the approval and its reason](img/article-3-step-06-workflow-task.png)
+![Workflow task details — the approval and its reason](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-workflow-task.png)
 
 **Accept** takes ownership of the task; **Approve** releases the held call. The stored invocation is replayed through `Invoker.Invoke`, so the `RiskCheck` Business Service runs through the normal production flow — with the same message headers as any other call:
 
-![Workflow — approved, the inbox is empty again](img/article-3-step-06-workflow-approved.png)
+![Workflow — approved, the inbox is empty again](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-workflow-approved.png)
 
 And the production now carries the message that was held until the human decided:
 
-![Message Viewer — the RiskCheck message, after the approval](img/article-3-step-06-msg-viewer-after-approval.png)
+![Message Viewer — the RiskCheck message, after the approval](https://raw.githubusercontent.com/musketeers-br/interopmcp/refs/heads/main/docs/articles/img/article-3-step-06-msg-viewer-after-approval.png)
 
 The held invocation ends in state `completed`, and the operator's decision is the audit record of why it was allowed to run. From the terminal, the same approval is `Approvals.Approve("<approvalId>", "<approver>")`, and the outcome can be read back with the gateway's own `GetInvocationStatus` tool:
 
@@ -405,5 +407,3 @@ Every scenario in this article is reproducible with `demo-web/scripts/record-scr
 ---
 
 *This article was drafted with AI assistance and reviewed by the author.*
-
-**Repository:** `src/br/musketeers.InteropMCP/` — see `Adapter.cls`, `Host.cls`, `Registry.cls`, `Guardrails.cls`, `Invoker.cls`, `GeneratedTools.cls`, `MetaTools.cls`, `FileTools.cls`, and `docs/interop-mcp/architecture.md`.
